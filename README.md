@@ -16,6 +16,66 @@
 </a>
 </p>
 
-Feed is located at `${baseUrl}/opds`
+## Features
 
-Authenticated feed is accessed as `https://user:pass@${baseUrl}/opds`
+### OPDS Feed
+
+Browse and download your book library from any OPDS-compatible reader (KOReader, Calibre, etc.).
+
+- OPDS feed at `${baseUrl}/opds`
+- Authenticated feed at `https://user:pass@${baseUrl}/opds`
+
+### KoSync (KOReader Progress Sync)
+
+Two-way reading progress synchronization for [KOReader](https://github.com/koreader/koreader) devices. No separate sync server needed.
+
+1. Configure KOReader to use your Jellyfin server URL as the custom sync server
+2. Login with your Jellyfin credentials
+3. Browse books via OPDS, download, and read — progress syncs automatically across devices
+
+## Build
+
+### With Docker
+
+```bash
+# Build the plugin
+docker build -t jellyfin-plugin-opds .
+
+# Extract the DLL
+docker create --name tmp jellyfin-plugin-opds
+docker cp tmp:/plugin/Jellyfin.Plugin.Opds.dll .
+docker rm tmp
+```
+
+### Without .NET SDK (Docker BuildKit)
+
+```bash
+docker build --output type=local,dest=./output .
+```
+
+The plugin DLL will be at `./output/plugin/Jellyfin.Plugin.Opds.dll`.
+
+### With .NET SDK
+
+```bash
+dotnet publish -c Release
+```
+
+## Installation
+
+1. Build or download `Jellyfin.Plugin.Opds.dll`
+2. Copy it to your Jellyfin `plugins/` directory
+3. Restart Jellyfin
+4. Go to **Dashboard > Plugins > OPDS Feed** to configure
+
+### Configuration
+
+| Option | Default | Description |
+|---|---|---|
+| Allow Anonymous Access | Off | Allow unauthenticated OPDS access |
+| Enable KoSync Server | On | Enable KOReader progress sync API |
+| Enable User Registration | Off | Allow KOReader to create users (users must exist in Jellyfin) |
+
+## License
+
+This project is licensed under the [GPLv3 License](LICENSE).

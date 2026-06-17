@@ -20,6 +20,30 @@
                 </label>
             </div>
             <br/>
+            <div class="verticalSection">
+                <div class="sectionTitleContainer">
+                    <h2 class="sectionTitle">KoSync (KOReader Progress Sync)</h2>
+                </div>
+            </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+                <label class="emby-checkbox-label">
+                    <input id="chkEnableSyncServer" type="checkbox" is="emby-checkbox" />
+                    <span>Enable KoSync Server</span>
+                </label>
+                <div class="fieldDescription">
+                    Enables the KoSync API for KOReader progress synchronization.
+                </div>
+            </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+                <label class="emby-checkbox-label">
+                    <input id="chkEnableUserRegistration" type="checkbox" is="emby-checkbox" />
+                    <span>Enable User Registration</span>
+                </label>
+                <div class="fieldDescription">
+                    Allow KOReader to register new users. Users must already exist in Jellyfin if disabled.
+                </div>
+            </div>
+            <br/>
             <button id="saveConfig" is="emby-button" type="submit" class="raised button-submit block">
                 <span>Save</span>
             </button>

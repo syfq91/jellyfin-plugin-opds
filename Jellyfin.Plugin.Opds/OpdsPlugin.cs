@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.Opds.Configuration;
 using MediaBrowser.Common.Configuration;
@@ -24,6 +24,14 @@ public class OpdsPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        UpdateConfiguration(Configuration);
+    }
+
+    /// <inheritdoc />
+    public override void UpdateConfiguration(PluginConfiguration configuration)
+    {
+        PluginConfiguration.Instance = configuration;
+        base.UpdateConfiguration(configuration);
     }
 
     /// <summary>
