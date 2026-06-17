@@ -404,6 +404,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             IncludeItemTypes = BookItemTypes,
             OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
             GenreIds = new[] { genreId },
+            Recursive = true,
             DtoOptions = new DtoOptions()
         };
 
@@ -487,7 +488,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Id = Guid.NewGuid().ToString(),
             Links = new[]
             {
-                new LinkDto("self", baseUrl + "/opds/search/" + searchTerm + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
+                new LinkDto("self", baseUrl + "/opds/search/" + Uri.EscapeDataString(searchTerm) + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
                 new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation", "Start"),
                 new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),

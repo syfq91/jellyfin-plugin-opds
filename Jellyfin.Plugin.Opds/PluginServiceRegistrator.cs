@@ -1,3 +1,4 @@
+using System.IO;
 using Jellyfin.Plugin.Opds.Data;
 using Jellyfin.Plugin.Opds.Services;
 using MediaBrowser.Controller;
@@ -17,10 +18,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
         serviceCollection.AddScoped<IOpdsFeedProvider, OpdsFeedProvider>();
 
-        var dataPath = Path.Combine(
-            applicationHost.ApplicationPaths.DataPath,
-            "plugins",
-            "jellyfin-plugin-opds");
+        var dataPath = OpdsPlugin.Instance!.DataFolderPath;
         Directory.CreateDirectory(dataPath);
         var dbPath = Path.Combine(dataPath, "kosync.db");
 

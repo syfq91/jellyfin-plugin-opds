@@ -24,14 +24,7 @@ public class OpdsPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
-        UpdateConfiguration(Configuration);
-    }
-
-    /// <inheritdoc />
-    public override void UpdateConfiguration(PluginConfiguration configuration)
-    {
-        PluginConfiguration.Instance = configuration;
-        base.UpdateConfiguration(configuration);
+        PluginConfiguration.Instance = Configuration;
     }
 
     /// <summary>
