@@ -14,4 +14,5 @@ artifacts:
   - "Jellyfin.Plugin.Opds.dll"
 changelog: |-
   - Add: OPDS page streaming extension (OPDS-PSE) support for comic archives and PDF documents, including reading progress, disabled by default (#29)
+  - Add: reading position synchronization via the draft OPDS Progression specification, disabled by default
   - Unstable: Update to latest Jellyfin preview packages (#53) @crobibero, @jellyfin-bot

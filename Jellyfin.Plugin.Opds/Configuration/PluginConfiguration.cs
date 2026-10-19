@@ -14,6 +14,7 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         AllowAnonymousAccess = false;
         EnablePageStreaming = false;
+        EnableProgression = false;
     }
 
     /// <summary>
@@ -26,4 +27,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// exposed page by page via the OPDS page streaming extension.
     /// </summary>
     public bool EnablePageStreaming { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether reading progression should be
+    /// exposed via the OPDS progression specification.
+    /// </summary>
+    public bool EnableProgression { get; set; }
 }

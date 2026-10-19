@@ -29,6 +29,18 @@
                     page by page to OPDS clients that support the page streaming extension, e.g. Panels.
                 </div>
             </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+                <label class="emby-checkbox-label">
+                    <input id="chkEnableProgression" type="checkbox" is="emby-checkbox" />
+                    <span>Enable Reading Progression (OPDS Progression)</span>
+                </label>
+                <div class="fieldDescription">
+                    Expose and accept reading position updates for books via the OPDS progression
+                    specification, for OPDS clients that support it. This synchronizes reading
+                    position with the rest of Jellyfin, including formats that cannot be streamed
+                    page by page such as EPUB.
+                </div>
+            </div>
             <br/>
             <button id="saveConfig" is="emby-button" type="submit" class="raised button-submit block">
                 <span>Save</span>

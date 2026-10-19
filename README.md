@@ -41,3 +41,20 @@ more expensive than extracting comic archive images.
 
 The feature is disabled by default and can be enabled with the
 "Enable Page Streaming (OPDS-PSE)" option in the plugin configuration.
+
+## Reading progression (OPDS Progression)
+
+Reading positions can be synchronized with
+[OPDS clients that support the draft progression specification](https://github.com/opds-community/drafts/blob/main/opds-progression-1.0.md):
+
+`GET /opds/progression/{bookId}` returns the last known progression of the authenticated
+user as an `application/opds-progression+json` document (or an empty payload when the book
+has not been opened yet); `PUT` with such a document stores the reading position reported
+by the client. Updates are written back to Jellyfin's own user data, so progress reported
+by OPDS clients shows up in every Jellyfin client, and updates that are older than the
+stored position are rejected with `409 Conflict`.
+
+Unlike page streaming, progression covers every book in the feeds, including formats that
+cannot be streamed page by page such as EPUB. The feature is disabled by default and can
+be enabled with the "Enable Reading Progression (OPDS Progression)" option in the plugin
+configuration.

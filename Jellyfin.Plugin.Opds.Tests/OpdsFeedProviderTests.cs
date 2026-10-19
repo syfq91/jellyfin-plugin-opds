@@ -22,6 +22,7 @@ namespace Jellyfin.Plugin.Opds.Tests;
 /// <summary>
 /// Tests the emission of page streaming links by the feed provider.
 /// </summary>
+[Collection("PluginState")]
 public class OpdsFeedProviderTests : IDisposable
 {
     private const string AtomNamespace = "http://www.w3.org/2005/Atom";
@@ -143,12 +144,43 @@ public class OpdsFeedProviderTests : IDisposable
         Assert.Null(link);
     }
 
+    [Fact]
+    public void Progression_Link_Is_Emitted_When_Enabled()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableProgression = true;
+
+        var feed = _provider.GetRecentlyAdded("/base", _userId);
+
+        var link = GetLink(feed, ProgressionConstants.Rel);
+        Assert.NotNull(link);
+        Assert.Equal(ProgressionConstants.MediaType, link!.Attribute("type")?.Value);
+        Assert.StartsWith("/base/opds/progression/", link.Attribute("href")?.Value, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Progression_Link_Is_Omitted_When_Disabled()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableProgression = false;
+
+        var feed = _provider.GetRecentlyAdded("/base", _userId);
+
+        Assert.Null(GetLink(feed, ProgressionConstants.Rel));
+    }
+
     private static XElement? GetStreamLink(FeedDto feed)
     {
         var xml = Serialize(feed);
         return XDocument.Parse(xml)
             .Descendants(XName.Get("link", AtomNamespace))
             .FirstOrDefault(e => string.Equals(e.Attribute("rel")?.Value, PseConstants.StreamRel, StringComparison.Ordinal));
+    }
+
+    private static XElement? GetLink(FeedDto feed, string rel)
+    {
+        var xml = Serialize(feed);
+        return XDocument.Parse(xml)
+            .Descendants(XName.Get("link", AtomNamespace))
+            .FirstOrDefault(e => string.Equals(e.Attribute("rel")?.Value, rel, StringComparison.Ordinal));
     }
 
     private static string Serialize(FeedDto feed)

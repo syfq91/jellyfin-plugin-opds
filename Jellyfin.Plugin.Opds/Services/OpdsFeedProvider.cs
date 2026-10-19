@@ -613,6 +613,16 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
+        // The progression service covers every book, including the formats
+        // that cannot be streamed page by page, e.g. EPUB.
+        if (OpdsPlugin.Instance!.Configuration.EnableProgression)
+        {
+            entry.Links.Add(new LinkDto(
+                ProgressionConstants.Rel,
+                baseUrl + "/opds/progression/" + book.Id,
+                ProgressionConstants.MediaType));
+        }
+
         return entry;
     }
 

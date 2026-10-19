@@ -16,5 +16,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddScoped<IOpdsFeedProvider, OpdsFeedProvider>();
         serviceCollection.AddSingleton<IPageStreamService, PageStreamService>();
         serviceCollection.AddSingleton<IPdfPageSource, PdfPageSource>();
+        serviceCollection.AddSingleton<IProgressionService, ProgressionService>();
     }
 }

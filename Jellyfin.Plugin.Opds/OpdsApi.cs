@@ -2,12 +2,16 @@ using System;
 using System.IO;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Xml;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Opds.Models;
 using Jellyfin.Plugin.Opds.Services;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
@@ -25,9 +29,17 @@ public class OpdsApi : ControllerBase
 {
     private const string AuthHeaderKey = "WWW-Authenticate";
     private const string AuthHeaderValue = "Basic realm=\"Login Required\"";
+
+    private static readonly JsonSerializerOptions ProgressionJsonOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly IUserManager _userManager;
     private readonly IOpdsFeedProvider _opdsFeedProvider;
     private readonly IPageStreamService _pageStreamService;
+    private readonly ILibraryManager _libraryManager;
+    private readonly IProgressionService _progressionService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsApi"/> class.
@@ -35,14 +47,20 @@ public class OpdsApi : ControllerBase
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="opdsFeedProvider">The opds feed provider.</param>
     /// <param name="pageStreamService">The page stream service.</param>
+    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="progressionService">The progression service.</param>
     public OpdsApi(
         IUserManager userManager,
         IOpdsFeedProvider opdsFeedProvider,
-        IPageStreamService pageStreamService)
+        IPageStreamService pageStreamService,
+        ILibraryManager libraryManager,
+        IProgressionService progressionService)
     {
         _userManager = userManager;
         _opdsFeedProvider = opdsFeedProvider;
         _pageStreamService = pageStreamService;
+        _libraryManager = libraryManager;
+        _progressionService = progressionService;
     }
 
     /// <summary>
@@ -371,6 +389,118 @@ public class OpdsApi : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Gets the reading progression of a book.
+    /// Used by OPDS clients supporting the OPDS progression specification.
+    /// </summary>
+    /// <param name="bookId">The book id.</param>
+    /// <returns>The progression document, or an empty payload when no progression is known.</returns>
+    [HttpGet("Progression/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> GetProgression([FromRoute] Guid bookId)
+    {
+        try
+        {
+            var user = await AuthorizeProgressionAsync().ConfigureAwait(false);
+            if (user is null)
+            {
+                return UnauthorizedResult();
+            }
+
+            var book = _libraryManager.GetItemById<Book>(bookId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
+            if (!book.IsVisibleStandalone(user))
+            {
+                return ProgressionProblem(
+                    StatusCodes.Status403Forbidden,
+                    ProgressionConstants.IncorrectUserType,
+                    "Progression could not be updated for the current user.");
+            }
+
+            var document = _progressionService.GetProgression(book, user);
+            if (document is null)
+            {
+                // The specification allows an empty payload when no
+                // progression has been communicated yet.
+                return new EmptyResult();
+            }
+
+            return ProgressionDocumentResult(document);
+        }
+        catch (AuthenticationException)
+        {
+            return UnauthorizedResult();
+        }
+    }
+
+    /// <summary>
+    /// Updates the reading progression of a book.
+    /// Used by OPDS clients supporting the OPDS progression specification.
+    /// </summary>
+    /// <param name="bookId">The book id.</param>
+    /// <param name="document">The progression document reported by the client.</param>
+    /// <returns>The resulting progression document.</returns>
+    [HttpPut("Progression/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult> UpdateProgression([FromRoute] Guid bookId, [FromBody] ProgressionDocument? document)
+    {
+        try
+        {
+            var user = await AuthorizeProgressionAsync().ConfigureAwait(false);
+            if (user is null)
+            {
+                return UnauthorizedResult();
+            }
+
+            var book = _libraryManager.GetItemById<Book>(bookId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
+            if (!book.IsVisibleStandalone(user))
+            {
+                return ProgressionProblem(
+                    StatusCodes.Status403Forbidden,
+                    ProgressionConstants.IncorrectUserType,
+                    "Progression could not be updated for the current user.");
+            }
+
+            var result = _progressionService.UpdateProgression(book, user, document);
+            switch (result.Status)
+            {
+                case ProgressionUpdateStatus.InvalidPayload:
+                    return ProgressionProblem(
+                        StatusCodes.Status400BadRequest,
+                        ProgressionConstants.InvalidPayloadType,
+                        "Progression could not be updated due to an invalid payload.");
+                case ProgressionUpdateStatus.StaleProgression:
+                    return ProgressionProblem(
+                        StatusCodes.Status409Conflict,
+                        ProgressionConstants.DateConflictType,
+                        "A more recent progression point is already available.");
+                default:
+                    return ProgressionDocumentResult(result.Document!);
+            }
+        }
+        catch (AuthenticationException)
+        {
+            return UnauthorizedResult();
+        }
+    }
+
     private async Task<Guid> AuthorizeAsync()
     {
         var allowAnonymous = OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess;
@@ -461,5 +591,52 @@ public class OpdsApi : ControllerBase
 
         memoryStream.Seek(0, SeekOrigin.Begin);
         return File(memoryStream, "application/atom+xml; charset=utf-8");
+    }
+
+    /// <summary>
+    /// Authenticates the request for the progression endpoints, which
+    /// always require a user (unlike the other endpoints, anonymous
+    /// access is not supported for per-user progression).
+    /// </summary>
+    /// <returns>The authenticated user, or <c>null</c> when the request is not authenticated.</returns>
+    private async Task<User?> AuthorizeProgressionAsync()
+    {
+        var userId = await AuthorizeAsync().ConfigureAwait(false);
+        if (userId == Guid.Empty)
+        {
+            return null;
+        }
+
+        return _userManager.GetUserById(userId);
+    }
+
+    private StatusCodeResult UnauthorizedResult()
+    {
+        Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+        return StatusCode(StatusCodes.Status401Unauthorized);
+    }
+
+    private ContentResult ProgressionDocumentResult(ProgressionDocument document)
+    {
+        var json = JsonSerializer.Serialize(document, ProgressionJsonOptions);
+        return Content(json, ProgressionConstants.MediaType);
+    }
+
+    private ContentResult ProgressionProblem(int statusCode, string type, string title)
+    {
+        var problem = new ProgressionProblem
+        {
+            Type = type,
+            Title = title,
+            Status = statusCode
+        };
+
+        var json = JsonSerializer.Serialize(problem, ProgressionJsonOptions);
+        return new ContentResult
+        {
+            Content = json,
+            ContentType = ProgressionConstants.ProblemMediaType,
+            StatusCode = statusCode
+        };
     }
 }
