@@ -62,6 +62,13 @@ array carries the path of the current page inside the comic archive (or `#page={
 documents, per RFC 8118) whenever the book has a page model. Responses are marked
 `Cache-Control: no-store`, since reading positions are personal and change over time.
 
+Jellyfin's user data has no fields for the reporting device, the reported title or the exact
+references a client sent, so the plugin keeps them in a small JSON store next to the plugin
+configuration (`Jellyfin.Plugin.Opds.progression.json`, capped and rewritten atomically).
+While the stored position still belongs to that report, documents answer with the device,
+title and references the client actually sent; once another client moves the position the
+store entry goes stale, and the synthesized device and the derived reference take over again.
+
 When the feature is enabled, unauthorized requests to the progression endpoints receive an
 [OPDS authentication document](https://github.com/opds-community/drafts/blob/main/authentication-for-opds-1.0.md)
 as the body of the `401` response. The same document is served at

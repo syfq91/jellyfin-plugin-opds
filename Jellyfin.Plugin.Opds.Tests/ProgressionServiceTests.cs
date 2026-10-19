@@ -21,6 +21,7 @@ public class ProgressionServiceTests
 
     private readonly Mock<IUserDataManager> _userDataManager = new();
     private readonly Mock<IPageStreamService> _pageStreamService = new();
+    private readonly Mock<IProgressionStore> _progressionStore = new();
     private readonly User _user;
     private readonly Book _book;
     private readonly ProgressionService _service;
@@ -35,8 +36,11 @@ public class ProgressionServiceTests
         // 35 pages of 10000 ticks each, like the server's book convention.
         _book = new Book { RunTimeTicks = 350000 };
 
-        // Loose mocks default to no pages, i.e. books without a page model.
-        _service = new ProgressionService(_userDataManager.Object, _pageStreamService.Object);
+        // Loose mocks default to no pages and no stored reports.
+        _service = new ProgressionService(
+            _userDataManager.Object,
+            _pageStreamService.Object,
+            _progressionStore.Object);
     }
 
     [Fact]
@@ -136,6 +140,162 @@ public class ProgressionServiceTests
         Assert.NotNull(document);
         Assert.Null(document!.References);
         _pageStreamService.Verify(x => x.GetPageReference(It.IsAny<Book>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetProgression_Uses_Stored_Fidelity_When_Fresh()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified,
+            PositionTicks = 100000,
+            Device = new ProgressionDevice { Id = "urn:uuid:device-1", Name = "Thorium" },
+            Title = "Chapter 3",
+            References = new List<string> { "page11.jpg" }
+        });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal("urn:uuid:device-1", document!.Device!.Id);
+        Assert.Equal("Thorium", document.Device.Name);
+        Assert.Equal("Chapter 3", document.Title);
+        Assert.Equal(new[] { "page11.jpg" }, document.References);
+        _pageStreamService.Verify(x => x.GetPageReference(It.IsAny<Book>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetProgression_Ignores_Store_Entry_From_Older_Position()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified,
+            PositionTicks = 50000,
+            Device = new ProgressionDevice { Id = "urn:uuid:device-1", Name = "Thorium" },
+            Title = "Chapter 2"
+        });
+        _pageStreamService.Setup(x => x.GetPageCount(_book)).Returns(35);
+        _pageStreamService.Setup(x => x.GetPageReference(_book, 10)).Returns("page11.jpg");
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal("urn:uuid:" + _user.Id, document!.Device!.Id);
+        Assert.Equal("Jellyfin (reader)", document.Device.Name);
+        Assert.Null(document.Title);
+        Assert.Equal(new[] { "page11.jpg" }, document.References);
+    }
+
+    [Fact]
+    public void GetProgression_Ignores_Store_Entry_With_Older_Timestamp()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified.AddDays(-1),
+            PositionTicks = 100000,
+            Device = new ProgressionDevice { Id = "urn:uuid:device-1", Name = "Thorium" },
+            Title = "Chapter 3"
+        });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal("urn:uuid:" + _user.Id, document!.Device!.Id);
+        Assert.Null(document.Title);
+    }
+
+    [Fact]
+    public void GetProgression_Derives_References_When_Store_Has_None()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified,
+            PositionTicks = 100000,
+            Device = new ProgressionDevice { Id = "urn:uuid:device-1", Name = "Thorium" }
+        });
+        _pageStreamService.Setup(x => x.GetPageCount(_book)).Returns(35);
+        _pageStreamService.Setup(x => x.GetPageReference(_book, 10)).Returns("page11.jpg");
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal("urn:uuid:device-1", document!.Device!.Id);
+        Assert.Equal(new[] { "page11.jpg" }, document.References);
+    }
+
+    [Fact]
+    public void GetProgression_Returns_Document_For_Zero_Progression_With_Fresh_Entry()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 0, LastPlayedDate = Modified });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified,
+            PositionTicks = 0,
+            Device = new ProgressionDevice { Id = "urn:uuid:device-1", Name = "Thorium" }
+        });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal(0d, document!.Progression);
+        Assert.Equal("urn:uuid:device-1", document.Device!.Id);
+    }
+
+    [Fact]
+    public void UpdateProgression_Stores_Reported_Fidelity()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 0 });
+        var incoming = CreateIncoming(0.5, Modified);
+        incoming.Title = "Chapter 3";
+        incoming.References = new List<string> { "#page=18" };
+
+        var result = _service.UpdateProgression(_book, _user, incoming);
+
+        Assert.Equal(ProgressionUpdateStatus.Success, result.Status);
+        _progressionStore.Verify(
+            x => x.Save(
+                _user.Id,
+                _book.Id,
+                It.Is<ProgressionStoreEntry>(
+                    e => e.Modified == Modified
+                        && e.PositionTicks == 175000
+                        && e.Device!.Id == "urn:uuid:test-device"
+                        && e.Device.Name == "Test Reader"
+                        && e.Title == "Chapter 3"
+                        && e.References!.Count == 1
+                        && e.References[0] == "#page=18")),
+            Times.Once);
+    }
+
+    [Fact]
+    public void UpdateProgression_Response_Uses_Reported_Fidelity()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 0 });
+        SetupStoredEntry(new ProgressionStoreEntry
+        {
+            Modified = Modified,
+            PositionTicks = 175000,
+            Device = new ProgressionDevice { Id = "urn:uuid:test-device", Name = "Test Reader" },
+            Title = "Chapter 3",
+            References = new List<string> { "#page=18" }
+        });
+
+        var incoming = CreateIncoming(0.5, Modified);
+        incoming.Title = "Chapter 3";
+        incoming.References = new List<string> { "#page=18" };
+
+        var result = _service.UpdateProgression(_book, _user, incoming);
+
+        Assert.Equal(ProgressionUpdateStatus.Success, result.Status);
+        Assert.NotNull(result.Document);
+        Assert.Equal("urn:uuid:test-device", result.Document!.Device!.Id);
+        Assert.Equal("Test Reader", result.Document.Device.Name);
+        Assert.Equal("Chapter 3", result.Document.Title);
+        Assert.Equal(new[] { "#page=18" }, result.Document.References);
     }
 
     [Fact]
@@ -316,6 +476,11 @@ public class ProgressionServiceTests
     private void SetupData(UserItemData data)
     {
         _userDataManager.Setup(x => x.GetUserData(_user, _book)).Returns(data);
+    }
+
+    private void SetupStoredEntry(ProgressionStoreEntry entry)
+    {
+        _progressionStore.Setup(x => x.Get(_user.Id, _book.Id)).Returns(entry);
     }
 
     private void VerifyNeverSaved()

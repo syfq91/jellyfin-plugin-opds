@@ -25,18 +25,31 @@ public class ProgressionService : IProgressionService
     /// </summary>
     private const int MaxReferenceLength = 4096;
 
+    /// <summary>
+    /// The maximum age difference between a stored report and the user data
+    /// it describes for the report to still be considered its source; small
+    /// enough to ignore positions written by other clients right after it.
+    /// </summary>
+    private static readonly TimeSpan FreshnessTolerance = TimeSpan.FromSeconds(1);
+
     private readonly IUserDataManager _userDataManager;
     private readonly IPageStreamService _pageStreamService;
+    private readonly IProgressionStore _progressionStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProgressionService"/> class.
     /// </summary>
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
     /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
-    public ProgressionService(IUserDataManager userDataManager, IPageStreamService pageStreamService)
+    /// <param name="progressionStore">Instance of the <see cref="IProgressionStore"/> interface.</param>
+    public ProgressionService(
+        IUserDataManager userDataManager,
+        IPageStreamService pageStreamService,
+        IProgressionStore progressionStore)
     {
         _userDataManager = userDataManager;
         _pageStreamService = pageStreamService;
+        _progressionStore = progressionStore;
     }
 
     /// <inheritdoc />
@@ -47,16 +60,22 @@ public class ProgressionService : IProgressionService
 
         var data = _userDataManager.GetUserData(user, book);
         var totalTicks = book.RunTimeTicks.GetValueOrDefault();
+        if (data is null || totalTicks <= 0)
+        {
+            return null;
+        }
+
+        var entry = GetFreshEntry(user.Id, book.Id, data);
 
         // An empty payload signals that no progression has been communicated yet.
-        if (data is null || data.PlaybackPositionTicks <= 0 || totalTicks <= 0)
+        if (data.PlaybackPositionTicks <= 0 && entry is null)
         {
             return null;
         }
 
         // Both book conventions (page ticks and the EPUB percentage convention)
         // map onto the same ratio, because the server scales the total to match.
-        return CreateDocument(book, data.PlaybackPositionTicks, totalTicks, data.LastPlayedDate ?? DateTime.UtcNow, user);
+        return CreateDocument(book, user, data, totalTicks, entry);
     }
 
     /// <inheritdoc />
@@ -91,6 +110,18 @@ public class ProgressionService : IProgressionService
         data.LastPlayedDate = modified;
         _userDataManager.SaveUserData(user, book, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
 
+        // Remember the fidelity of the report, which Jellyfin's user data
+        // has no fields for.
+        var entry = new ProgressionStoreEntry
+        {
+            Modified = modified,
+            PositionTicks = data.PlaybackPositionTicks,
+            Device = incoming.Device,
+            Title = incoming.Title,
+            References = incoming.References is { Count: > 0 } ? new List<string>(incoming.References) : null
+        };
+        _progressionStore.Save(user.Id, book.Id, entry);
+
         // Answer with the stored state, so that clients see the effect of their
         // report; when the total length is unknown the accepted values are echoed.
         var document = GetProgression(book, user)
@@ -98,7 +129,9 @@ public class ProgressionService : IProgressionService
             {
                 Progression = incoming.Progression!.Value,
                 Modified = modified,
-                Device = CreateDevice(user)
+                Device = entry.Device ?? CreateDevice(user),
+                Title = entry.Title,
+                References = entry.References is { Count: > 0 } ? new List<string>(entry.References) : null
             };
 
         return new ProgressionUpdateResult(ProgressionUpdateStatus.Success, document);
@@ -115,22 +148,88 @@ public class ProgressionService : IProgressionService
         };
     }
 
-    private ProgressionDocument CreateDocument(Book book, long positionTicks, long totalTicks, DateTime modified, User user)
+    /// <summary>
+    /// Builds a progression document from the stored user data, preferring
+    /// the reported fidelity of a fresh store entry over the synthesized
+    /// device and the derived reference.
+    /// </summary>
+    /// <param name="book">The book.</param>
+    /// <param name="user">The user the progression belongs to.</param>
+    /// <param name="data">The stored user data.</param>
+    /// <param name="totalTicks">The total length of the book.</param>
+    /// <param name="entry">The fresh store entry, when there is one.</param>
+    /// <returns>The progression document.</returns>
+    private ProgressionDocument CreateDocument(
+        Book book,
+        User user,
+        UserItemData data,
+        long totalTicks,
+        ProgressionStoreEntry? entry)
     {
         var document = new ProgressionDocument
         {
-            Progression = Math.Clamp((double)positionTicks / totalTicks, 0d, 1d),
-            Modified = modified.ToUniversalTime(),
-            Device = CreateDevice(user)
+            Progression = Math.Clamp((double)data.PlaybackPositionTicks / totalTicks, 0d, 1d),
+            Modified = (data.LastPlayedDate ?? DateTime.UtcNow).ToUniversalTime()
         };
 
-        var references = GetReferences(book, positionTicks, totalTicks);
-        if (references is not null)
+        if (entry is not null)
         {
-            document.References = references;
+            // Report what the OPDS client that wrote this progression sent.
+            document.Device = entry.Device;
+            document.Title = entry.Title;
+            if (entry.References is { Count: > 0 })
+            {
+                document.References = new List<string>(entry.References);
+            }
+        }
+        else
+        {
+            // Jellyfin does not persist the device of a progression report,
+            // so without a stored report it is synthesized from the user.
+            document.Device = CreateDevice(user);
+        }
+
+        if (document.References is null)
+        {
+            // No references were reported (or the entry is gone): derive the
+            // reference of the page the position points at.
+            var references = GetReferences(book, data.PlaybackPositionTicks, totalTicks);
+            if (references is not null)
+            {
+                document.References = references;
+            }
         }
 
         return document;
+    }
+
+    /// <summary>
+    /// Gets the stored report that describes the current user data, if any.
+    /// The entry only counts when it is the report that produced the stored
+    /// position and timestamp; positions written by other clients since then
+    /// make it stale, and the fallbacks take over.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="bookId">The book id.</param>
+    /// <param name="data">The stored user data.</param>
+    /// <returns>The fresh entry, or <c>null</c> when there is none.</returns>
+    private ProgressionStoreEntry? GetFreshEntry(Guid userId, Guid bookId, UserItemData data)
+    {
+        if (data.LastPlayedDate is null)
+        {
+            return null;
+        }
+
+        var entry = _progressionStore.Get(userId, bookId);
+        if (entry is null
+            || entry.Device is null
+            || entry.PositionTicks != data.PlaybackPositionTicks
+            || Math.Abs(entry.Modified.Ticks - data.LastPlayedDate.Value.Ticks) > FreshnessTolerance.Ticks)
+        {
+            return null;
+        }
+
+        return entry;
     }
 
     /// <summary>
