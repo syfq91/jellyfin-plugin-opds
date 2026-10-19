@@ -56,6 +56,12 @@ public class FeedDto
     public string Xmlns { get; set; } = "http://www.w3.org/2005/Atom";
 
     /// <summary>
+    /// Gets or sets the OPDS page streaming extension namespace declaration.
+    /// </summary>
+    [XmlAttribute(AttributeName = "pse", Namespace = "http://www.w3.org/2000/xmlns/")]
+    public string XmlnsPse { get; set; } = PseConstants.Namespace;
+
+    /// <summary>
     /// Gets or sets the xml text.
     /// </summary>
     [XmlText]

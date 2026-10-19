@@ -19,3 +19,17 @@
 Feed is located at `${baseUrl}/opds`
 
 Authenticated feed is accessed as `https://user:pass@${baseUrl}/opds`
+
+## Page streaming (OPDS-PSE)
+
+Comic book archives (`.cbz`, `.cbr`, `.cb7`, `.cbt`, `.zip`, `.rar`, `.7z`, `.tar`) can be read page
+by page by [OPDS clients that support the page streaming extension](https://anansi-project.github.io/docs/opds-pse/intro)
+(e.g. [Panels](https://panels.app/)), without downloading the whole file:
+
+`GET /opds/stream/{bookId}?page={pageNumber}`
+
+* `page` is the zero-based number of the requested page.
+* `width` (optional) limits the maximum width of the returned JPEG image.
+
+The feature is disabled by default and can be enabled with the
+"Enable Page Streaming (OPDS-PSE)" option in the plugin configuration.

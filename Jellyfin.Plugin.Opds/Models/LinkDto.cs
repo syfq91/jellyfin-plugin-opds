@@ -119,6 +119,44 @@ public class LinkDto
     }
 
     /// <summary>
+    /// Gets or sets the number of pages of the document, as used by the
+    /// OPDS page streaming extension.
+    /// </summary>
+    [XmlIgnore]
+    public long? PageCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the string representation of the page count.
+    /// </summary>
+    /// <remarks>
+    /// Xml is unable to serialize "Complex Types", so this is used for serialization.
+    /// </remarks>
+    [XmlAttribute(AttributeName = "count", Namespace = PseConstants.Namespace)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public string? PageCountStr
+    {
+        get => PageCount?.ToString(CultureInfo.InvariantCulture);
+        set
+        {
+            switch (value)
+            {
+                case null:
+                    PageCount = null;
+                    break;
+                case var l:
+                {
+                    if (long.TryParse(l, NumberStyles.Integer, CultureInfo.InvariantCulture, out var val))
+                    {
+                        PageCount = val;
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Gets or sets the book updated time.
     /// </summary>
     [XmlIgnore]

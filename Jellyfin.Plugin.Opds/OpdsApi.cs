@@ -27,18 +27,22 @@ public class OpdsApi : ControllerBase
     private const string AuthHeaderValue = "Basic realm=\"Login Required\"";
     private readonly IUserManager _userManager;
     private readonly IOpdsFeedProvider _opdsFeedProvider;
+    private readonly IPageStreamService _pageStreamService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsApi"/> class.
     /// </summary>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="opdsFeedProvider">The opds feed provider.</param>
+    /// <param name="pageStreamService">The page stream service.</param>
     public OpdsApi(
         IUserManager userManager,
-        IOpdsFeedProvider opdsFeedProvider)
+        IOpdsFeedProvider opdsFeedProvider,
+        IPageStreamService pageStreamService)
     {
         _userManager = userManager;
         _opdsFeedProvider = opdsFeedProvider;
+        _pageStreamService = pageStreamService;
     }
 
     /// <summary>
@@ -322,6 +326,43 @@ public class OpdsApi : ControllerBase
 
             var fileName = Path.GetFileName(bookPath);
             return PhysicalFile(bookPath, MimeTypes.GetMimeType(bookPath), fileName);
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Gets a single page of a book as an image.
+    /// Used by OPDS clients supporting the page streaming extension.
+    /// </summary>
+    /// <param name="bookId">The book id.</param>
+    /// <param name="page">The zero-based number of the requested page.</param>
+    /// <param name="width">The optional maximum width of the returned page.</param>
+    /// <returns>The page image.</returns>
+    [HttpGet("Stream/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> GetBookPage([FromRoute] Guid bookId, [FromQuery] int page = 0, [FromQuery] int? width = null)
+    {
+        try
+        {
+            await AuthorizeAsync().ConfigureAwait(false);
+
+            if (!OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+            {
+                return NotFound();
+            }
+
+            var result = _pageStreamService.GetPage(bookId, page, width);
+            if (result is null)
+            {
+                return NotFound();
+            }
+
+            return File(result.Content, result.ContentType);
         }
         catch (AuthenticationException)
         {

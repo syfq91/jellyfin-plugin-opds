@@ -28,6 +28,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     private readonly ISearchManager _searchManager;
     private readonly IServerApplicationHost _serverApplicationHost;
     private readonly IUserManager _userManager;
+    private readonly IPageStreamService _pageStreamService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsFeedProvider"/> class.
@@ -36,16 +37,19 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <param name="searchManager">Instance of the <see cref="ISearchManager"/> interface.</param>
     /// <param name="serverApplicationHost">Instance of the <see cref="IServerApplicationHost"/> interface.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
     public OpdsFeedProvider(
         ILibraryManager libraryManager,
         ISearchManager searchManager,
         IServerApplicationHost serverApplicationHost,
-        IUserManager userManager)
+        IUserManager userManager,
+        IPageStreamService pageStreamService)
     {
         _libraryManager = libraryManager;
         _searchManager = searchManager;
         _serverApplicationHost = serverApplicationHost;
         _userManager = userManager;
+        _pageStreamService = pageStreamService;
     }
 
     /// <inheritdoc />
@@ -573,6 +577,21 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 {
                     UpdateTime = book.DateModified,
                     Length = book.Size
+                });
+            }
+        }
+
+        if (OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+        {
+            var pageCount = _pageStreamService.GetPageCount(book);
+            if (pageCount > 0)
+            {
+                entry.Links.Add(new LinkDto(
+                    PseConstants.StreamRel,
+                    baseUrl + "/opds/stream/" + book.Id + "?page={pageNumber}&width={maxWidth}",
+                    PseConstants.JpegMediaType)
+                {
+                    PageCount = pageCount
                 });
             }
         }

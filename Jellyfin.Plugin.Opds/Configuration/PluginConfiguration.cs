@@ -13,10 +13,17 @@ public class PluginConfiguration : BasePluginConfiguration
     public PluginConfiguration()
     {
         AllowAnonymousAccess = false;
+        EnablePageStreaming = false;
     }
 
     /// <summary>
     /// Gets or sets a value indicating whether the api should allow anonymous access.
     /// </summary>
     public bool AllowAnonymousAccess { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether comic book archives should be
+    /// exposed page by page via the OPDS page streaming extension.
+    /// </summary>
+    public bool EnablePageStreaming { get; set; }
 }
