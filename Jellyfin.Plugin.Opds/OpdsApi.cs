@@ -27,6 +27,7 @@ public class OpdsApi : ControllerBase
 {
     private const string AuthHeaderKey = "WWW-Authenticate";
     private const string AuthHeaderValue = "Basic realm=\"Login Required\"";
+    private static readonly UTF8Encoding Utf8WithoutBom = new(false);
 
     private readonly IUserManager _userManager;
     private readonly IOpdsFeedProvider _opdsFeedProvider;
@@ -583,7 +584,7 @@ public class OpdsApi : ControllerBase
     {
         var memoryStream = new MemoryStream();
         var serializer = XmlHelper.Create(typeof(FeedDto), outputFeed.Xmlns);
-        using (var writer = new StreamWriter(memoryStream, Encoding.UTF8, IODefaults.StreamWriterBufferSize, true))
+        using (var writer = new StreamWriter(memoryStream, Utf8WithoutBom, IODefaults.StreamWriterBufferSize, true))
         using (var textWriter = new XmlTextWriter(writer))
         {
             textWriter.Formatting = Formatting.Indented;
@@ -598,7 +599,7 @@ public class OpdsApi : ControllerBase
     {
         var memoryStream = new MemoryStream();
         var serializer = XmlHelper.Create(typeof(OpenSearchDescriptionDto), outputFeed.Xmlns!);
-        using (var writer = new StreamWriter(memoryStream, Encoding.UTF8, IODefaults.StreamWriterBufferSize, true))
+        using (var writer = new StreamWriter(memoryStream, Utf8WithoutBom, IODefaults.StreamWriterBufferSize, true))
         using (var textWriter = new XmlTextWriter(writer))
         {
             textWriter.Formatting = Formatting.Indented;

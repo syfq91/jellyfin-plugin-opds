@@ -32,6 +32,7 @@ public class OpdsApiProgressionTests : IDisposable
     private readonly Book _book;
     private readonly Mock<ILibraryManager> _libraryManager = new();
     private readonly Mock<IProgressionService> _progressionService = new();
+    private readonly Mock<IOpdsFeedProvider> _opdsFeedProvider = new();
     private readonly OpdsApi _controller;
 
     /// <summary>
@@ -67,7 +68,7 @@ public class OpdsApiProgressionTests : IDisposable
 
         _controller = new OpdsApi(
             userManager.Object,
-            Mock.Of<IOpdsFeedProvider>(),
+            _opdsFeedProvider.Object,
             Mock.Of<IPageStreamService>(),
             _libraryManager.Object,
             _progressionService.Object)
@@ -283,6 +284,33 @@ public class OpdsApiProgressionTests : IDisposable
         var result = await _controller.UpdateProgression(_bookId, CreateIncoming());
 
         Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task GetRootFeed_Output_DoesNotEmitByteOrderMark()
+    {
+        _opdsFeedProvider.Setup(x => x.GetFeeds(It.IsAny<string>())).Returns(new FeedDto());
+
+        var result = await _controller.GetRootFeed();
+        var fileResult = Assert.IsType<FileStreamResult>(result);
+        var stream = fileResult.FileStream;
+        stream.Seek(0, SeekOrigin.Begin);
+        var firstByte = stream.ReadByte();
+        Assert.Equal((int)'<', firstByte);
+    }
+
+    [Fact]
+    public async Task GetSearchDescription_Output_DoesNotEmitByteOrderMark()
+    {
+        _opdsFeedProvider.Setup(x => x.GetSearchDescription(It.IsAny<string>()))
+            .Returns(new OpenSearchDescriptionDto { Xmlns = "http://a9.com/-/spec/opensearch/1.1/" });
+
+        var result = await _controller.GetSearchDescription();
+        var fileResult = Assert.IsType<FileStreamResult>(result);
+        var stream = fileResult.FileStream;
+        stream.Seek(0, SeekOrigin.Begin);
+        var firstByte = stream.ReadByte();
+        Assert.Equal((int)'<', firstByte);
     }
 
     private static ProgressionDocument CreateIncoming()

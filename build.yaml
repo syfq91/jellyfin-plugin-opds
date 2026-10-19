@@ -1,7 +1,7 @@
 name: "OPDS"
 guid: "F30880AE-3365-449E-B9E6-BF133C8401B0"
 imageUrl: "https://repo.jellyfin.org/releases/plugin/images/jellyfin-plugin-opds.png"
-version: "8.1.0.0"
+version: "8.1.1.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 owner: "jellyfin"
@@ -13,6 +13,7 @@ category: "Books"
 artifacts:
   - "Jellyfin.Plugin.Opds.dll"
 changelog: |-
+  - Fix: Remove UTF-8 BOM from Atom and OpenSearch XML feeds to fix KOReader catalog browsing
   - Add: OPDS page streaming extension (OPDS-PSE) support for comic archives and PDF documents, including reading progress, disabled by default (#29)
   - Add: reading position synchronization via the draft OPDS Progression specification, including server-derived references, an OPDS authentication document and stored device/title fidelity, disabled by default
   - Unstable: Update to latest Jellyfin preview packages (#53) @crobibero, @jellyfin-bot
