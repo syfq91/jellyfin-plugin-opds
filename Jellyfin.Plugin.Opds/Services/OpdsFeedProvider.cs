@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
@@ -24,11 +25,14 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
     private static readonly AuthorDto PluginAuthor = new("Jellyfin", "https://github.com/jellyfin/jellyfin-plugin-opds");
 
+    private static readonly IReadOnlyDictionary<Guid, UserItemData> EmptyUserItemData = new Dictionary<Guid, UserItemData>();
+
     private readonly ILibraryManager _libraryManager;
     private readonly ISearchManager _searchManager;
     private readonly IServerApplicationHost _serverApplicationHost;
     private readonly IUserManager _userManager;
     private readonly IPageStreamService _pageStreamService;
+    private readonly IUserDataManager _userDataManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsFeedProvider"/> class.
@@ -38,18 +42,21 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <param name="serverApplicationHost">Instance of the <see cref="IServerApplicationHost"/> interface.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
+    /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
     public OpdsFeedProvider(
         ILibraryManager libraryManager,
         ISearchManager searchManager,
         IServerApplicationHost serverApplicationHost,
         IUserManager userManager,
-        IPageStreamService pageStreamService)
+        IPageStreamService pageStreamService,
+        IUserDataManager userDataManager)
     {
         _libraryManager = libraryManager;
         _searchManager = searchManager;
         _serverApplicationHost = serverApplicationHost;
         _userManager = userManager;
         _pageStreamService = pageStreamService;
+        _userDataManager = userDataManager;
     }
 
     /// <inheritdoc />
@@ -276,12 +283,11 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var queryResult = _libraryManager.GetItemsResult(query);
         if (queryResult is not null)
         {
-            foreach (var item in queryResult.Items)
+            var books = queryResult.Items.OfType<Book>().ToList();
+            var userItemData = GetUserItemData(userId, books);
+            foreach (var book in books)
             {
-                if (item is Book book)
-                {
-                    feedDto.Entries.Add(CreateEntry(book, baseUrl));
-                }
+                feedDto.Entries.Add(CreateEntry(book, baseUrl, userItemData));
             }
         }
 
@@ -314,12 +320,11 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             var items = _libraryManager.GetItemList(query);
             if (items is not null)
             {
-                foreach (var item in items)
+                var books = items.OfType<Book>().ToList();
+                var userItemData = GetUserItemData(userId, books);
+                foreach (var book in books)
                 {
-                    if (item is Book book)
-                    {
-                        entries.Add(CreateEntry(book, baseUrl));
-                    }
+                    entries.Add(CreateEntry(book, baseUrl, userItemData));
                 }
             }
         }
@@ -371,12 +376,11 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var entries = new List<EntryDto>();
         if (items is not null)
         {
-            foreach (var item in items)
+            var books = items.OfType<Book>().ToList();
+            var userItemData = GetUserItemData(userId, books);
+            foreach (var book in books)
             {
-                if (item is Book book)
-                {
-                    entries.Add(CreateEntry(book, baseUrl));
-                }
+                entries.Add(CreateEntry(book, baseUrl, userItemData));
             }
         }
 
@@ -425,12 +429,11 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var entries = new List<EntryDto>();
         if (queryResult is not null)
         {
-            foreach (var item in queryResult)
+            var books = queryResult.OfType<Book>().ToList();
+            var userItemData = GetUserItemData(userId, books);
+            foreach (var book in books)
             {
-                if (item is Book book)
-                {
-                    entries.Add(CreateEntry(book, baseUrl));
-                }
+                entries.Add(CreateEntry(book, baseUrl, userItemData));
             }
         }
 
@@ -478,13 +481,16 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             UserId = userId
         }).ConfigureAwait(false);
 
-        var entries = new List<EntryDto>(searchResult.Items.Count);
-        foreach (var result in searchResult.Items)
+        var books = searchResult.Items
+            .Select(result => result.Item)
+            .OfType<Book>()
+            .ToList();
+
+        var entries = new List<EntryDto>(books.Count);
+        var userItemData = GetUserItemData(userId, books);
+        foreach (var book in books)
         {
-            if (result.Item is Book book)
-            {
-                entries.Add(CreateEntry(book, baseUrl));
-            }
+            entries.Add(CreateEntry(book, baseUrl, userItemData));
         }
 
         return new FeedDto
@@ -543,7 +549,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         return title + " - " + (string.IsNullOrEmpty(serverName) ? "Jellyfin" : serverName);
     }
 
-    private EntryDto CreateEntry(Book book, string baseUrl)
+    private EntryDto CreateEntry(Book book, string baseUrl, IReadOnlyDictionary<Guid, UserItemData> userItemData)
     {
         var entry = new EntryDto(
             book.Name,
@@ -586,16 +592,53 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             var pageCount = _pageStreamService.GetPageCount(book);
             if (pageCount > 0)
             {
-                entry.Links.Add(new LinkDto(
+                var streamLink = new LinkDto(
                     PseConstants.StreamRel,
                     baseUrl + "/opds/stream/" + book.Id + "?page={pageNumber}&width={maxWidth}",
                     PseConstants.JpegMediaType)
                 {
                     PageCount = pageCount
-                });
+                };
+
+                if (userItemData.TryGetValue(book.Id, out var data))
+                {
+                    streamLink.LastRead = PseConstants.GetLastRead(data.PlaybackPositionTicks, pageCount);
+                    if (streamLink.LastRead is not null)
+                    {
+                        streamLink.LastReadDate = data.LastPlayedDate;
+                    }
+                }
+
+                entry.Links.Add(streamLink);
             }
         }
 
         return entry;
+    }
+
+    /// <summary>
+    /// Gets the user data of the given items in a single batch operation.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="items">The items to get the user data of.</param>
+    /// <returns>The user data of the items, keyed on the item id.</returns>
+    private IReadOnlyDictionary<Guid, UserItemData> GetUserItemData(Guid userId, List<Book> items)
+    {
+        // The user data is only used for the reading progress of the page
+        // streaming extension, so don't query it when that is not exposed.
+        if (userId == Guid.Empty
+            || items.Count == 0
+            || !OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+        {
+            return EmptyUserItemData;
+        }
+
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return EmptyUserItemData;
+        }
+
+        return _userDataManager.GetUserDataBatch(items, user);
     }
 }

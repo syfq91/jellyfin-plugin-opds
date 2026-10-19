@@ -157,6 +157,86 @@ public class LinkDto
     }
 
     /// <summary>
+    /// Gets or sets the last page read for this document, as used by the
+    /// OPDS page streaming extension. The numbering starts at 1.
+    /// </summary>
+    [XmlIgnore]
+    public long? LastRead { get; set; }
+
+    /// <summary>
+    /// Gets or sets the string representation of the last read page.
+    /// </summary>
+    /// <remarks>
+    /// Xml is unable to serialize "Complex Types", so this is used for serialization.
+    /// </remarks>
+    [XmlAttribute(AttributeName = "lastRead", Namespace = PseConstants.Namespace)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public string? LastReadStr
+    {
+        get => LastRead?.ToString(CultureInfo.InvariantCulture);
+        set
+        {
+            switch (value)
+            {
+                case null:
+                    LastRead = null;
+                    break;
+                case var l:
+                {
+                    if (long.TryParse(l, NumberStyles.Integer, CultureInfo.InvariantCulture, out var val))
+                    {
+                        LastRead = val;
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the date of when the <see cref="LastRead"/> attribute was last updated.
+    /// </summary>
+    [XmlIgnore]
+    public DateTime? LastReadDate { get; set; }
+
+    /// <summary>
+    /// Gets or sets the string representation of the last read date.
+    /// </summary>
+    /// <remarks>
+    /// Xml is unable to serialize "Complex Types", so this is used for serialization.
+    /// The value conforms to Atom's date construct.
+    /// </remarks>
+    [XmlAttribute(AttributeName = "lastReadDate", Namespace = PseConstants.Namespace)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public string? LastReadDateStr
+    {
+        get => LastReadDate?.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+        set
+        {
+            switch (value)
+            {
+                case null:
+                    LastReadDate = null;
+                    break;
+                case var l:
+                {
+                    if (DateTime.TryParse(
+                        l,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                        out var val))
+                    {
+                        LastReadDate = val;
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Gets or sets the book updated time.
     /// </summary>
     [XmlIgnore]

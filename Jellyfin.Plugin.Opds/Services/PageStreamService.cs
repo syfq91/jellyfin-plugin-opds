@@ -26,6 +26,11 @@ public class PageStreamService : IPageStreamService
     private const int MaxCacheEntries = 1000;
 
     /// <summary>
+    /// The maximum width of a resized page.
+    /// </summary>
+    private const int MaxPageWidth = 4096;
+
+    /// <summary>
     /// The extensions of archives that can be streamed page by page.
     /// </summary>
     private static readonly string[] StreamableExtensions =
@@ -92,6 +97,10 @@ public class PageStreamService : IPageStreamService
         if (maxWidth is <= 0)
         {
             maxWidth = null;
+        }
+        else if (maxWidth > MaxPageWidth)
+        {
+            maxWidth = MaxPageWidth;
         }
 
         var book = GetBook(bookId);

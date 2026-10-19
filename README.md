@@ -31,5 +31,9 @@ by page by [OPDS clients that support the page streaming extension](https://anan
 * `page` is the zero-based number of the requested page.
 * `width` (optional) limits the maximum width of the returned JPEG image.
 
+Catalog entries advertise the total page count (`pse:count`) and, when the user has started
+reading, the last read page and its date (`pse:lastRead`, `pse:lastReadDate`) so that clients
+can resume where the user left off. The requested width is capped at 4096 pixels.
+
 The feature is disabled by default and can be enabled with the
 "Enable Page Streaming (OPDS-PSE)" option in the plugin configuration.

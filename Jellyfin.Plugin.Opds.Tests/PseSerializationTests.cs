@@ -36,11 +36,43 @@ public class PseSerializationTests
     }
 
     [Fact]
-    public void StreamLink_Omits_PageCount_When_Null()
+    public void StreamLink_Omits_Progress_When_Null()
     {
         var link = GetStreamLink(Serialize(CreateFeed(null)));
 
         Assert.Null(link.Attribute(XName.Get("count", PseNamespace)));
+        Assert.Null(link.Attribute(XName.Get("lastRead", PseNamespace)));
+        Assert.Null(link.Attribute(XName.Get("lastReadDate", PseNamespace)));
+    }
+
+    [Fact]
+    public void StreamLink_Serializes_Reading_Progress_In_Pse_Namespace()
+    {
+        var lastReadDate = new DateTime(2010, 1, 10, 10, 1, 11, DateTimeKind.Utc);
+        var link = GetStreamLink(Serialize(CreateFeed(35, 10, lastReadDate)));
+
+        Assert.Equal("10", link.Attribute(XName.Get("lastRead", PseNamespace))?.Value);
+        Assert.Equal("2010-01-10T10:01:11Z", link.Attribute(XName.Get("lastReadDate", PseNamespace))?.Value);
+    }
+
+    [Fact]
+    public void LastReadDate_Roundtrips_As_Atom_Date_Construct()
+    {
+        var link = new LinkDto(PseConstants.StreamRel, "/opds/stream/1?page={pageNumber}", "image/jpeg");
+
+        link.LastReadDateStr = "2010-01-10T10:01:11Z";
+        Assert.Equal(new DateTime(2010, 1, 10, 10, 1, 11, DateTimeKind.Utc), link.LastReadDate);
+        Assert.Equal("2010-01-10T10:01:11Z", link.LastReadDateStr);
+
+        link.LastReadDateStr = null;
+        Assert.Null(link.LastReadDate);
+
+        link.LastReadStr = "10";
+        Assert.Equal(10, link.LastRead);
+        Assert.Equal("10", link.LastReadStr);
+
+        link.LastReadStr = null;
+        Assert.Null(link.LastRead);
     }
 
     [Fact]
@@ -68,7 +100,7 @@ public class PseSerializationTests
             .Single(e => string.Equals(e.Attribute("rel")?.Value, PseConstants.StreamRel, StringComparison.Ordinal));
     }
 
-    private static FeedDto CreateFeed(long? pageCount = 0)
+    private static FeedDto CreateFeed(long? pageCount = 0, long? lastRead = null, DateTime? lastReadDate = null)
     {
         return new FeedDto
         {
@@ -82,7 +114,9 @@ public class PseSerializationTests
                     {
                         new LinkDto(PseConstants.StreamRel, "/opds/stream/1?page={pageNumber}&width={maxWidth}", "image/jpeg")
                         {
-                            PageCount = pageCount
+                            PageCount = pageCount,
+                            LastRead = lastRead,
+                            LastReadDate = lastReadDate
                         }
                     }
                 }
