@@ -148,10 +148,56 @@ public class OpdsApiProgressionTests : IDisposable
 
         var result = await _controller.GetProgression(_bookId);
 
-        var status = Assert.IsType<StatusCodeResult>(result);
-        Assert.Equal(StatusCodes.Status401Unauthorized, status.StatusCode);
+        // The 401 carries the authentication document of the plugin.
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Equal(StatusCodes.Status401Unauthorized, content.StatusCode);
+        Assert.Equal(AuthenticationConstants.MediaType, content.ContentType);
         Assert.True(_controller.HttpContext.Response.Headers.ContainsKey("WWW-Authenticate"));
+        Assert.Contains(AuthenticationConstants.Rel, _controller.HttpContext.Response.Headers["Link"].ToString());
+
+        using var json = JsonDocument.Parse(content.Content!);
+        Assert.Equal("Jellyfin", json.RootElement.GetProperty("title").GetString());
+        Assert.Equal(
+            AuthenticationConstants.BasicAuthenticationType,
+            json.RootElement.GetProperty("authentication")[0].GetProperty("type").GetString());
         _progressionService.Verify(x => x.GetProgression(It.IsAny<Book>(), It.IsAny<User>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetAuthenticationDocument_Returns_Document()
+    {
+        var result = _controller.GetAuthenticationDocument();
+
+        var content = Assert.IsType<ContentResult>(result);
+        Assert.Equal(AuthenticationConstants.MediaType, content.ContentType);
+        Assert.Null(content.StatusCode);
+
+        using var json = JsonDocument.Parse(content.Content!);
+        Assert.Equal("/opds/authentication.json", json.RootElement.GetProperty("id").GetString());
+        Assert.Equal("Jellyfin", json.RootElement.GetProperty("title").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("authentication").GetArrayLength());
+        Assert.Equal(
+            AuthenticationConstants.BasicAuthenticationType,
+            json.RootElement.GetProperty("authentication")[0].GetProperty("type").GetString());
+        Assert.Equal("Username", json.RootElement.GetProperty("authentication")[0].GetProperty("labels").GetProperty("login").GetString());
+        Assert.Equal("Password", json.RootElement.GetProperty("authentication")[0].GetProperty("labels").GetProperty("password").GetString());
+    }
+
+    [Fact]
+    public async Task Progression_Responses_Are_Not_Cached()
+    {
+        _progressionService
+            .Setup(x => x.GetProgression(_book, _user))
+            .Returns(new ProgressionDocument
+            {
+                Progression = 0.5,
+                Modified = Modified,
+                Device = new ProgressionDevice { Id = "urn:uuid:test", Name = "Test Reader" }
+            });
+
+        await _controller.GetProgression(_bookId);
+
+        Assert.Equal("no-store", _controller.HttpContext.Response.Headers["Cache-Control"].ToString());
     }
 
     [Fact]

@@ -2,8 +2,6 @@ using System;
 using System.IO;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Xml;
 using Jellyfin.Database.Implementations.Entities;
@@ -29,11 +27,6 @@ public class OpdsApi : ControllerBase
 {
     private const string AuthHeaderKey = "WWW-Authenticate";
     private const string AuthHeaderValue = "Basic realm=\"Login Required\"";
-
-    private static readonly JsonSerializerOptions ProgressionJsonOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
 
     private readonly IUserManager _userManager;
     private readonly IOpdsFeedProvider _opdsFeedProvider;
@@ -296,6 +289,23 @@ public class OpdsApi : ControllerBase
     }
 
     /// <summary>
+    /// Gets the authentication document, as defined by the
+    /// Authentication for OPDS specification.
+    /// </summary>
+    /// <returns>The authentication document.</returns>
+    [HttpGet("authentication.json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetAuthenticationDocument()
+    {
+        var json = ProgressionSerializer.Serialize(AuthenticationDocumentBuilder.Create(Request.PathBase));
+        return new ContentResult
+        {
+            Content = json,
+            ContentType = AuthenticationConstants.MediaType
+        };
+    }
+
+    /// <summary>
     /// Gets the book image.
     /// </summary>
     /// <param name="bookId">The book id.</param>
@@ -404,6 +414,9 @@ public class OpdsApi : ControllerBase
     {
         try
         {
+            // Progressions are personal and change over time; never cache them.
+            Response.Headers["Cache-Control"] = "no-store";
+
             var user = await AuthorizeProgressionAsync().ConfigureAwait(false);
             if (user is null)
             {
@@ -458,6 +471,9 @@ public class OpdsApi : ControllerBase
     {
         try
         {
+            // Progressions are personal and change over time; never cache them.
+            Response.Headers["Cache-Control"] = "no-store";
+
             var user = await AuthorizeProgressionAsync().ConfigureAwait(false);
             if (user is null)
             {
@@ -610,15 +626,32 @@ public class OpdsApi : ControllerBase
         return _userManager.GetUserById(userId);
     }
 
-    private StatusCodeResult UnauthorizedResult()
+    /// <summary>
+    /// Builds the 401 response of the progression endpoints, carrying the
+    /// authentication document described by Authentication for OPDS, as
+    /// well as a link to it.
+    /// </summary>
+    /// <returns>The 401 response.</returns>
+    private ContentResult UnauthorizedResult()
     {
+        string baseUrl = Request.PathBase;
         Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
-        return StatusCode(StatusCodes.Status401Unauthorized);
+        Response.Headers["Link"] = "<" + baseUrl + AuthenticationConstants.DocumentPath
+            + ">; rel=\"" + AuthenticationConstants.Rel
+            + "\"; type=\"" + AuthenticationConstants.MediaType + "\"";
+
+        var json = ProgressionSerializer.Serialize(AuthenticationDocumentBuilder.Create(baseUrl));
+        return new ContentResult
+        {
+            Content = json,
+            ContentType = AuthenticationConstants.MediaType,
+            StatusCode = StatusCodes.Status401Unauthorized
+        };
     }
 
     private ContentResult ProgressionDocumentResult(ProgressionDocument document)
     {
-        var json = JsonSerializer.Serialize(document, ProgressionJsonOptions);
+        var json = ProgressionSerializer.Serialize(document);
         return Content(json, ProgressionConstants.MediaType);
     }
 
@@ -631,7 +664,7 @@ public class OpdsApi : ControllerBase
             Status = statusCode
         };
 
-        var json = JsonSerializer.Serialize(problem, ProgressionJsonOptions);
+        var json = ProgressionSerializer.Serialize(problem);
         return new ContentResult
         {
             Content = json,

@@ -142,6 +142,29 @@ public class PageStreamService : IPageStreamService
         return ExtractPage(book, pages[pageNumber], maxWidth);
     }
 
+    /// <inheritdoc />
+    public string? GetPageReference(Book book, int pageNumber)
+    {
+        if (book is null || pageNumber < 0)
+        {
+            return null;
+        }
+
+        if (IsPdf(book.Path))
+        {
+            // PDF references carry the 1-based page number (RFC 8118, section 3).
+            return TryGetPdfPageCount(book, out var pageCount) && pageNumber < pageCount
+                ? "#page=" + (pageNumber + 1)
+                : null;
+        }
+
+        // Archive references are the path of the page inside the archive,
+        // in the same natural order that the streaming endpoint uses.
+        return TryGetPageList(book, out var pages) && pageNumber < pages.Count
+            ? pages[pageNumber]
+            : null;
+    }
+
     private static bool IsImageEntry(IArchiveEntry entry)
     {
         if (entry.IsDirectory || string.IsNullOrEmpty(entry.Key))

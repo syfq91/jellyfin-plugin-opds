@@ -63,16 +63,27 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     public FeedDto GetFeeds(string baseUrl)
     {
         var timestamp = DateTime.UtcNow;
+        var links = new List<LinkDto>
+        {
+            new("self", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation"),
+            new("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation", "Start"),
+            new("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
+            new("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
+        };
+
+        // The authentication document is only advertised when it is required.
+        if (!OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess)
+        {
+            links.Add(new LinkDto(
+                AuthenticationConstants.Rel,
+                baseUrl + AuthenticationConstants.DocumentPath,
+                AuthenticationConstants.MediaType));
+        }
+
         return new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation", "Start"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = links.ToArray(),
             Title = GetFeedName("Feeds"),
             Author = PluginAuthor,
             Entries = new List<EntryDto>

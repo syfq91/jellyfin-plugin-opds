@@ -215,6 +215,47 @@ public class PageStreamServiceTests : IDisposable
         Assert.Null(service.GetPage(Guid.NewGuid(), 0, null));
     }
 
+    [Fact]
+    public void GetPageReference_Returns_Entry_Key_In_Natural_Order()
+    {
+        var service = CreateService(CreateBook());
+
+        Assert.Equal("001.jpg", service.GetPageReference(CreateBook(), 0));
+        Assert.Equal("010.jpg", service.GetPageReference(CreateBook(), 2));
+        Assert.Equal("sub/003.jpg", service.GetPageReference(CreateBook(), 3));
+    }
+
+    [Fact]
+    public void GetPageReference_Returns_Null_For_Invalid_Page()
+    {
+        var service = CreateService(CreateBook());
+
+        Assert.Null(service.GetPageReference(CreateBook(), -1));
+        Assert.Null(service.GetPageReference(CreateBook(), 4));
+    }
+
+    [Fact]
+    public void GetPageReference_Returns_Null_For_Unsupported_Format()
+    {
+        var book = new Book { Path = Path.Combine(_directory, "book.epub") };
+        var service = CreateService(book);
+
+        Assert.Null(service.GetPageReference(book, 0));
+    }
+
+    [Fact]
+    public void GetPageReference_Returns_One_Based_Pdf_Page()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        Assert.Equal("#page=1", service.GetPageReference(book, 0));
+        Assert.Equal("#page=7", service.GetPageReference(book, 6));
+        Assert.Null(service.GetPageReference(book, 7));
+    }
+
     private static void CreateArchive(string path, params (string Key, byte[] Content)[] entries)
     {
         using var fileStream = File.Open(path, FileMode.Create);

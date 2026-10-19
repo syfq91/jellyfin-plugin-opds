@@ -167,6 +167,29 @@ public class OpdsFeedProviderTests : IDisposable
         Assert.Null(GetLink(feed, ProgressionConstants.Rel));
     }
 
+    [Fact]
+    public void Root_Feed_Advertises_Authentication_Document_When_Required()
+    {
+        OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess = false;
+
+        var feed = _provider.GetFeeds("/base");
+
+        var link = GetLink(feed, AuthenticationConstants.Rel);
+        Assert.NotNull(link);
+        Assert.Equal(AuthenticationConstants.MediaType, link!.Attribute("type")?.Value);
+        Assert.Equal("/base/opds/authentication.json", link.Attribute("href")?.Value);
+    }
+
+    [Fact]
+    public void Root_Feed_Omits_Authentication_Document_When_Anonymous_Access_Allowed()
+    {
+        OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess = true;
+
+        var feed = _provider.GetFeeds("/base");
+
+        Assert.Null(GetLink(feed, AuthenticationConstants.Rel));
+    }
+
     private static XElement? GetStreamLink(FeedDto feed)
     {
         var xml = Serialize(feed);

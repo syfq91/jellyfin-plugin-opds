@@ -7,6 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="JsonSchema.Net" Version="9.4.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
         <PackageReference Include="Moq" Version="4.18.4" />
         <PackageReference Include="xunit.v3" Version="3.2.2" />
@@ -18,6 +19,10 @@
 
     <ItemGroup>
         <ProjectReference Include="../Jellyfin.Plugin.Opds/Jellyfin.Plugin.Opds.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="Schemas\*.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

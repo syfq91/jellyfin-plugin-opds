@@ -20,6 +20,7 @@ public class ProgressionServiceTests
     private static readonly DateTime Modified = new(2026, 1, 27, 11, 0, 0, DateTimeKind.Utc);
 
     private readonly Mock<IUserDataManager> _userDataManager = new();
+    private readonly Mock<IPageStreamService> _pageStreamService = new();
     private readonly User _user;
     private readonly Book _book;
     private readonly ProgressionService _service;
@@ -34,7 +35,8 @@ public class ProgressionServiceTests
         // 35 pages of 10000 ticks each, like the server's book convention.
         _book = new Book { RunTimeTicks = 350000 };
 
-        _service = new ProgressionService(_userDataManager.Object);
+        // Loose mocks default to no pages, i.e. books without a page model.
+        _service = new ProgressionService(_userDataManager.Object, _pageStreamService.Object);
     }
 
     [Fact]
@@ -96,6 +98,57 @@ public class ProgressionServiceTests
         Assert.NotNull(document);
         Assert.Equal("urn:uuid:" + _user.Id, document!.Device!.Id);
         Assert.Equal("Jellyfin (reader)", document.Device.Name);
+    }
+
+    [Fact]
+    public void GetProgression_Includes_Entry_Key_Reference_For_Archives()
+    {
+        _pageStreamService.Setup(x => x.GetPageCount(_book)).Returns(35);
+        _pageStreamService.Setup(x => x.GetPageReference(_book, 10)).Returns("page11.jpg");
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal(new[] { "page11.jpg" }, document!.References);
+    }
+
+    [Fact]
+    public void GetProgression_Includes_Page_Reference_For_Pdfs()
+    {
+        _pageStreamService.Setup(x => x.GetPageCount(_book)).Returns(35);
+        _pageStreamService.Setup(x => x.GetPageReference(_book, 17)).Returns("#page=18");
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 175000, LastPlayedDate = Modified });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Equal(new[] { "#page=18" }, document!.References);
+    }
+
+    [Fact]
+    public void GetProgression_Omits_References_When_No_Page_Model()
+    {
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 100000, LastPlayedDate = Modified });
+
+        var document = _service.GetProgression(_book, _user);
+
+        Assert.NotNull(document);
+        Assert.Null(document!.References);
+        _pageStreamService.Verify(x => x.GetPageReference(It.IsAny<Book>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public void UpdateProgression_Includes_Reference_In_Response()
+    {
+        _pageStreamService.Setup(x => x.GetPageCount(_book)).Returns(35);
+        _pageStreamService.Setup(x => x.GetPageReference(_book, 10)).Returns("page11.jpg");
+        SetupData(new UserItemData { Key = "k", PlaybackPositionTicks = 0 });
+
+        var result = _service.UpdateProgression(_book, _user, CreateIncoming(100000d / 350000d, Modified));
+
+        Assert.Equal(ProgressionUpdateStatus.Success, result.Status);
+        Assert.Equal(new[] { "page11.jpg" }, result.Document!.References);
     }
 
     [Fact]

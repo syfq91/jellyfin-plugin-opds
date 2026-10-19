@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Opds.Models;
@@ -25,14 +26,17 @@ public class ProgressionService : IProgressionService
     private const int MaxReferenceLength = 4096;
 
     private readonly IUserDataManager _userDataManager;
+    private readonly IPageStreamService _pageStreamService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ProgressionService"/> class.
     /// </summary>
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
-    public ProgressionService(IUserDataManager userDataManager)
+    /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
+    public ProgressionService(IUserDataManager userDataManager, IPageStreamService pageStreamService)
     {
         _userDataManager = userDataManager;
+        _pageStreamService = pageStreamService;
     }
 
     /// <inheritdoc />
@@ -52,8 +56,7 @@ public class ProgressionService : IProgressionService
 
         // Both book conventions (page ticks and the EPUB percentage convention)
         // map onto the same ratio, because the server scales the total to match.
-        var progression = Math.Clamp((double)data.PlaybackPositionTicks / totalTicks, 0d, 1d);
-        return CreateDocument(progression, data.LastPlayedDate ?? DateTime.UtcNow, user);
+        return CreateDocument(book, data.PlaybackPositionTicks, totalTicks, data.LastPlayedDate ?? DateTime.UtcNow, user);
     }
 
     /// <inheritdoc />
@@ -91,24 +94,65 @@ public class ProgressionService : IProgressionService
         // Answer with the stored state, so that clients see the effect of their
         // report; when the total length is unknown the accepted values are echoed.
         var document = GetProgression(book, user)
-            ?? CreateDocument(incoming.Progression!.Value, modified, user);
+            ?? new ProgressionDocument
+            {
+                Progression = incoming.Progression!.Value,
+                Modified = modified,
+                Device = CreateDevice(user)
+            };
+
         return new ProgressionUpdateResult(ProgressionUpdateStatus.Success, document);
     }
 
-    private static ProgressionDocument CreateDocument(double progression, DateTime modified, User user)
+    private static ProgressionDevice CreateDevice(User user)
     {
         // Jellyfin does not persist the device of a progression report, so the
         // device is synthesized from the user the progression belongs to.
-        return new ProgressionDocument
+        return new ProgressionDevice
         {
-            Progression = progression,
-            Modified = modified.ToUniversalTime(),
-            Device = new ProgressionDevice
-            {
-                Id = "urn:uuid:" + user.Id,
-                Name = "Jellyfin (" + user.Username + ")"
-            }
+            Id = "urn:uuid:" + user.Id,
+            Name = "Jellyfin (" + user.Username + ")"
         };
+    }
+
+    private ProgressionDocument CreateDocument(Book book, long positionTicks, long totalTicks, DateTime modified, User user)
+    {
+        var document = new ProgressionDocument
+        {
+            Progression = Math.Clamp((double)positionTicks / totalTicks, 0d, 1d),
+            Modified = modified.ToUniversalTime(),
+            Device = CreateDevice(user)
+        };
+
+        var references = GetReferences(book, positionTicks, totalTicks);
+        if (references is not null)
+        {
+            document.References = references;
+        }
+
+        return document;
+    }
+
+    /// <summary>
+    /// Derives the reference of the page the position points at, from the
+    /// natural page order of the book (an archive entry path, or a PDF page
+    /// fragment). Only available for books with a page model.
+    /// </summary>
+    /// <param name="book">The book.</param>
+    /// <param name="positionTicks">The stored position.</param>
+    /// <param name="totalTicks">The total length of the book.</param>
+    /// <returns>The references, or <c>null</c> when the book has no page model.</returns>
+    private List<string>? GetReferences(Book book, long positionTicks, long totalTicks)
+    {
+        var pageCount = _pageStreamService.GetPageCount(book);
+        if (pageCount <= 0 || totalTicks <= 0)
+        {
+            return null;
+        }
+
+        var pageIndex = (int)((double)positionTicks * pageCount / totalTicks);
+        var reference = _pageStreamService.GetPageReference(book, Math.Clamp(pageIndex, 0, pageCount - 1));
+        return reference is null ? null : new List<string> { reference };
     }
 
     private static bool IsValid(ProgressionDocument? document)

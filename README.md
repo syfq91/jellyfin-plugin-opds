@@ -55,6 +55,18 @@ by OPDS clients shows up in every Jellyfin client, and updates that are older th
 stored position are rejected with `409 Conflict`.
 
 Unlike page streaming, progression covers every book in the feeds, including formats that
-cannot be streamed page by page such as EPUB. The feature is disabled by default and can
-be enabled with the "Enable Reading Progression (OPDS Progression)" option in the plugin
-configuration.
+cannot be streamed page by page such as EPUB.
+
+Server side, documents are derived from Jellyfin's stored reading position: the `references`
+array carries the path of the current page inside the comic archive (or `#page={n}` for PDF
+documents, per RFC 8118) whenever the book has a page model. Responses are marked
+`Cache-Control: no-store`, since reading positions are personal and change over time.
+
+When the feature is enabled, unauthorized requests to the progression endpoints receive an
+[OPDS authentication document](https://github.com/opds-community/drafts/blob/main/authentication-for-opds-1.0.md)
+as the body of the `401` response. The same document is served at
+`GET /opds/authentication.json` (media type `application/opds-authentication+json`) and,
+when anonymous access is disabled, linked from the root feed.
+
+The feature is disabled by default and can be enabled with the "Enable Reading Progression
+(OPDS Progression)" option in the plugin configuration.
