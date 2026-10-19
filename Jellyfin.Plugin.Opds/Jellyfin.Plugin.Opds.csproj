@@ -14,6 +14,8 @@
         <PackageReference Include="Jellyfin.Controller" Version="12.*-*" />
         <!-- Provided by the Jellyfin server at runtime; the version must match the server's pin. -->
         <PackageReference Include="SharpCompress" Version="0.50.4" />
+        <!-- Provided by the Jellyfin server at runtime; the version must match the server's pin. -->
+        <PackageReference Include="PDFtoImage" Version="5.2.1" />
     </ItemGroup>
 
     <ItemGroup>

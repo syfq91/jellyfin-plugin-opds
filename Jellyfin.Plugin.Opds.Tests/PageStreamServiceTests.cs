@@ -131,7 +131,86 @@ public class PageStreamServiceTests : IDisposable
         var service = new PageStreamService(
             libraryManager.Object,
             new Mock<IImageEncoder>().Object,
+            Mock.Of<IPdfPageSource>(),
             Mock.Of<ILogger<PageStreamService>>());
+
+        Assert.Null(service.GetPage(Guid.NewGuid(), 0, null));
+    }
+
+    [Fact]
+    public void GetPageCount_Counts_Pdf_Pages()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        Assert.Equal(7, service.GetPageCount(book));
+    }
+
+    [Fact]
+    public void GetPageCount_Caches_Pdf_Page_Count()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        Assert.Equal(7, service.GetPageCount(book));
+        Assert.Equal(7, service.GetPageCount(book));
+
+        pdfPageSource.Verify(x => x.GetPageCount(book.Path!), Times.Once);
+    }
+
+    [Fact]
+    public void GetPageCount_Returns_Zero_For_Unreadable_Pdf()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns((int?)null);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        Assert.Equal(0, service.GetPageCount(book));
+    }
+
+    [Fact]
+    public void GetPage_Renders_Pdf_Pages_With_Clamped_Width()
+    {
+        var jpegBytes = new byte[] { 1, 2, 3 };
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        pdfPageSource.Setup(x => x.RenderPage(book.Path!, 2, 4096)).Returns(jpegBytes);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        var page = service.GetPage(Guid.NewGuid(), 2, 99999);
+
+        Assert.NotNull(page);
+        Assert.Equal("image/jpeg", page.ContentType);
+        Assert.Equal(jpegBytes, page.Content);
+        pdfPageSource.Verify(x => x.RenderPage(book.Path!, 2, 4096), Times.Once);
+    }
+
+    [Fact]
+    public void GetPage_Returns_Null_For_Out_Of_Range_Pdf_Page()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        var service = CreateService(book, pdfPageSource.Object);
+
+        Assert.Null(service.GetPage(Guid.NewGuid(), 7, null));
+        pdfPageSource.Verify(x => x.RenderPage(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int?>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetPage_Returns_Null_For_Failed_Pdf_Render()
+    {
+        var book = CreatePdfBook();
+        var pdfPageSource = new Mock<IPdfPageSource>();
+        pdfPageSource.Setup(x => x.GetPageCount(book.Path!)).Returns(7);
+        pdfPageSource.Setup(x => x.RenderPage(book.Path!, 0, It.IsAny<int?>())).Returns((byte[]?)null);
+        var service = CreateService(book, pdfPageSource.Object);
 
         Assert.Null(service.GetPage(Guid.NewGuid(), 0, null));
     }
@@ -148,7 +227,7 @@ public class PageStreamServiceTests : IDisposable
         }
     }
 
-    private PageStreamService CreateService(Book book)
+    private PageStreamService CreateService(Book book, IPdfPageSource? pdfPageSource = null)
     {
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager.Setup(x => x.GetItemById(It.IsAny<Guid>())).Returns(book);
@@ -161,11 +240,19 @@ public class PageStreamServiceTests : IDisposable
         return new PageStreamService(
             libraryManager.Object,
             imageEncoder.Object,
+            pdfPageSource ?? Mock.Of<IPdfPageSource>(),
             Mock.Of<ILogger<PageStreamService>>());
     }
 
     private Book CreateBook()
     {
         return new Book { Path = _archivePath };
+    }
+
+    private Book CreatePdfBook()
+    {
+        var path = Path.Combine(_directory, "book.pdf");
+        File.WriteAllBytes(path, new byte[] { 1, 2, 3 });
+        return new Book { Path = path };
     }
 }

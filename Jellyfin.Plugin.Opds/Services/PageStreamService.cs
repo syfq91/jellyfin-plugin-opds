@@ -15,8 +15,8 @@ using SharpCompress.Archives;
 namespace Jellyfin.Plugin.Opds.Services;
 
 /// <summary>
-/// Provides page by page access to comic book archives, as used by the
-/// OPDS page streaming extension.
+/// Provides page by page access to comic book archives and PDF documents,
+/// as used by the OPDS page streaming extension.
 /// </summary>
 public class PageStreamService : IPageStreamService
 {
@@ -29,6 +29,11 @@ public class PageStreamService : IPageStreamService
     /// The maximum width of a resized page.
     /// </summary>
     private const int MaxPageWidth = 4096;
+
+    /// <summary>
+    /// The extension of PDF documents that can be streamed page by page.
+    /// </summary>
+    private const string PdfExtension = ".pdf";
 
     /// <summary>
     /// The extensions of archives that can be streamed page by page.
@@ -52,9 +57,11 @@ public class PageStreamService : IPageStreamService
     private static readonly IReadOnlyCollection<ImageFormat> SupportedOutputFormats = new[] { ImageFormat.Jpg };
 
     private readonly ConcurrentDictionary<string, CacheEntry> _pageCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PdfCacheEntry> _pdfPageCache = new(StringComparer.Ordinal);
 
     private readonly ILibraryManager _libraryManager;
     private readonly IImageEncoder _imageEncoder;
+    private readonly IPdfPageSource _pdfPageSource;
     private readonly ILogger<PageStreamService> _logger;
 
     /// <summary>
@@ -62,14 +69,17 @@ public class PageStreamService : IPageStreamService
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="imageEncoder">Instance of the <see cref="IImageEncoder"/> interface.</param>
+    /// <param name="pdfPageSource">Instance of the <see cref="IPdfPageSource"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{PageStreamService}"/> interface.</param>
     public PageStreamService(
         ILibraryManager libraryManager,
         IImageEncoder imageEncoder,
+        IPdfPageSource pdfPageSource,
         ILogger<PageStreamService> logger)
     {
         _libraryManager = libraryManager;
         _imageEncoder = imageEncoder;
+        _pdfPageSource = pdfPageSource;
         _logger = logger;
     }
 
@@ -77,6 +87,11 @@ public class PageStreamService : IPageStreamService
     public int GetPageCount(Book book)
     {
         ArgumentNullException.ThrowIfNull(book);
+
+        if (IsPdf(book.Path))
+        {
+            return TryGetPdfPageCount(book, out var pageCount) ? pageCount : 0;
+        }
 
         if (!TryGetPageList(book, out var pages))
         {
@@ -104,12 +119,22 @@ public class PageStreamService : IPageStreamService
         }
 
         var book = GetBook(bookId);
-        if (book is null || !TryGetPageList(book, out var pages))
+        if (book is null)
         {
             return null;
         }
 
-        if (pageNumber >= pages.Count)
+        if (IsPdf(book.Path))
+        {
+            if (!TryGetPdfPageCount(book, out var pageCount) || pageNumber >= pageCount)
+            {
+                return null;
+            }
+
+            return ExtractPdfPage(book, pageNumber, maxWidth);
+        }
+
+        if (!TryGetPageList(book, out var pages) || pageNumber >= pages.Count)
         {
             return null;
         }
@@ -134,10 +159,17 @@ public class PageStreamService : IPageStreamService
         return ImageExtensions.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool IsStreamable(string? path)
+    private static bool IsPdf(string? path)
     {
         return !string.IsNullOrEmpty(path)
-            && StreamableExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+            && PdfExtension.Equals(Path.GetExtension(path), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStreamable(string? path)
+    {
+        return IsPdf(path)
+            || (!string.IsNullOrEmpty(path)
+                && StreamableExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
     }
 
     private static void DeleteTemporaryFile(string path)
@@ -218,6 +250,80 @@ public class PageStreamService : IPageStreamService
         {
             _logger.LogWarning(e, "Unable to read pages from {Path}", path);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Gets the number of pages of the book's PDF document,
+    /// using a cache keyed on the path of the file.
+    /// </summary>
+    /// <param name="book">The book.</param>
+    /// <param name="pageCount">The number of pages of the document.</param>
+    /// <returns>Whether the page count could be determined.</returns>
+    private bool TryGetPdfPageCount(Book book, out int pageCount)
+    {
+        pageCount = 0;
+
+        var path = book.Path;
+        if (!IsPdf(path))
+        {
+            return false;
+        }
+
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            return false;
+        }
+
+        if (_pdfPageCache.TryGetValue(path, out var cached)
+            && cached.Size == file.Length
+            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc)
+        {
+            pageCount = cached.PageCount;
+            return true;
+        }
+
+        var count = _pdfPageSource.GetPageCount(path);
+        if (count is null or <= 0)
+        {
+            return false;
+        }
+
+        if (_pdfPageCache.Count >= MaxCacheEntries)
+        {
+            _pdfPageCache.Clear();
+        }
+
+        _pdfPageCache[path] = new PdfCacheEntry(file.LastWriteTimeUtc, file.Length, count.Value);
+        pageCount = count.Value;
+        return true;
+    }
+
+    /// <summary>
+    /// Renders a single page of the book's PDF document as jpeg.
+    /// </summary>
+    /// <param name="book">The book.</param>
+    /// <param name="pageNumber">The zero-based number of the page.</param>
+    /// <param name="maxWidth">The optional maximum width of the page.</param>
+    /// <returns>The page image, or <c>null</c> when the page could not be rendered.</returns>
+    private PageStreamResult? ExtractPdfPage(Book book, int pageNumber, int? maxWidth)
+    {
+        var path = book.Path;
+        try
+        {
+            var jpegBytes = _pdfPageSource.RenderPage(path, pageNumber, maxWidth);
+            if (jpegBytes is null)
+            {
+                return null;
+            }
+
+            return new PageStreamResult(jpegBytes, PseConstants.JpegMediaType);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "Unable to render page {PageNumber} of {Path}", pageNumber, path);
+            return null;
         }
     }
 
@@ -342,4 +448,12 @@ public class PageStreamService : IPageStreamService
     /// <param name="Size">The size of the book's file.</param>
     /// <param name="Pages">The ordered list of image entries.</param>
     private sealed record CacheEntry(DateTime LastWriteTimeUtc, long Size, IReadOnlyList<string> Pages);
+
+    /// <summary>
+    /// A cached page count of a PDF document.
+    /// </summary>
+    /// <param name="LastWriteTimeUtc">The last write time of the book's file.</param>
+    /// <param name="Size">The size of the book's file.</param>
+    /// <param name="PageCount">The number of pages of the document.</param>
+    private sealed record PdfCacheEntry(DateTime LastWriteTimeUtc, long Size, int PageCount);
 }

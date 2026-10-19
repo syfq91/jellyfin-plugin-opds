@@ -22,8 +22,9 @@ Authenticated feed is accessed as `https://user:pass@${baseUrl}/opds`
 
 ## Page streaming (OPDS-PSE)
 
-Comic book archives (`.cbz`, `.cbr`, `.cb7`, `.cbt`, `.zip`, `.rar`, `.7z`, `.tar`) can be read page
-by page by [OPDS clients that support the page streaming extension](https://anansi-project.github.io/docs/opds-pse/intro)
+Comic book archives (`.cbz`, `.cbr`, `.cb7`, `.cbt`, `.zip`, `.rar`, `.7z`, `.tar`) and PDF
+documents (`.pdf`) can be read page by page by
+[OPDS clients that support the page streaming extension](https://anansi-project.github.io/docs/opds-pse/intro)
 (e.g. [Panels](https://panels.app/)), without downloading the whole file:
 
 `GET /opds/stream/{bookId}?page={pageNumber}`
@@ -34,6 +35,9 @@ by page by [OPDS clients that support the page streaming extension](https://anan
 Catalog entries advertise the total page count (`pse:count`) and, when the user has started
 reading, the last read page and its date (`pse:lastRead`, `pse:lastReadDate`) so that clients
 can resume where the user left off. The requested width is capped at 4096 pixels.
+
+PDF pages are rendered on demand (at 150 dpi, or scaled to the requested width), which is
+more expensive than extracting comic archive images.
 
 The feature is disabled by default and can be enabled with the
 "Enable Page Streaming (OPDS-PSE)" option in the plugin configuration.
