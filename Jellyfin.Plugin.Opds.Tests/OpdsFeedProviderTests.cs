@@ -693,6 +693,95 @@ public class OpdsFeedProviderTests : IDisposable
             Times.AtLeastOnce);
     }
 
+    [Fact]
+    public void GetAllBooks_Throws_ArgumentException_On_Invalid_MultiCharacter_Filter()
+    {
+        Assert.Throws<ArgumentException>(() => _provider.GetAllBooks("/base", _userId, "INVALID"));
+        Assert.Throws<ArgumentException>(() => _provider.GetAllBooks("/base", _userId, "AB"));
+    }
+
+    [Fact]
+    public void GetAllBooks_With_00_Filter_Returns_All_Books()
+    {
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.NameStartsWith == string.Empty)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+
+        var feed = _provider.GetAllBooks("/base", _userId, "00");
+
+        Assert.NotNull(feed);
+        Assert.Equal("urn:jellyfin:opds:books:letter:00:0:50", feed.Id);
+        Assert.Single(feed.Entries!);
+    }
+
+    [Fact]
+    public void Feeds_Have_Deterministic_Stable_Ids()
+    {
+        var root1 = _provider.GetFeeds("/base");
+        var root2 = _provider.GetFeeds("/base");
+        Assert.Equal("urn:jellyfin:opds:root", root1.Id);
+        Assert.Equal(root1.Id, root2.Id);
+
+        var books1 = _provider.GetAlphabeticalFeed("/base");
+        var books2 = _provider.GetAlphabeticalFeed("/base");
+        Assert.Equal("urn:jellyfin:opds:books", books1.Id);
+        Assert.Equal(books1.Id, books2.Id);
+
+        var genres1 = _provider.GetBookGenres("/base", _userId);
+        var genres2 = _provider.GetBookGenres("/base", _userId);
+        Assert.Equal("urn:jellyfin:opds:genres", genres1.Id);
+        Assert.Equal(genres1.Id, genres2.Id);
+
+        var recent1 = _provider.GetRecentlyAdded("/base", _userId, 0, 50);
+        var recent2 = _provider.GetRecentlyAdded("/base", _userId, 0, 50);
+        Assert.Equal("urn:jellyfin:opds:recentlyadded:0:50", recent1.Id);
+        Assert.Equal(recent1.Id, recent2.Id);
+
+        var fav1 = _provider.GetFavoriteBooks("/base", _userId, 0, 50);
+        var fav2 = _provider.GetFavoriteBooks("/base", _userId, 0, 50);
+        Assert.Equal("urn:jellyfin:opds:favorite:0:50", fav1.Id);
+        Assert.Equal(fav1.Id, fav2.Id);
+    }
+
+    [Fact]
+    public void GetFolder_UpLink_Points_To_ParentFolder_For_Subfolder_And_Root_For_UserRootFolder()
+    {
+        var parentFolderId = Guid.NewGuid();
+        var parentFolder = new Folder { Id = parentFolderId, Name = "Comics Library" };
+
+        var childFolderId = Guid.NewGuid();
+        var childFolder = new Folder { Id = childFolderId, Name = "Batman", ParentId = parentFolderId };
+
+        _libraryManager.Setup(x => x.GetItemById(childFolderId)).Returns(childFolder);
+        _libraryManager.Setup(x => x.GetItemById(parentFolderId)).Returns(parentFolder);
+
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == childFolderId && !q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = Array.Empty<BaseItem>(), TotalRecordCount = 0 });
+
+        // When parent is normal folder, up-link points to parent
+        var feed1 = _provider.GetFolder("/base", _userId, childFolderId);
+        Assert.NotNull(feed1);
+        var upLink1 = feed1.Links?.FirstOrDefault(l => l.Rel == "up");
+        Assert.NotNull(upLink1);
+        Assert.Equal($"/base/opds/folders/{parentFolderId}", upLink1.Href);
+
+        // When parent is UserRootFolder, up-link falls back to /base/opds/folders
+        var userRootFolderId = Guid.NewGuid();
+        var userRoot = new UserRootFolder { Id = userRootFolderId, Name = "User Root" };
+        var topLevelFolderId = Guid.NewGuid();
+        var topLevelFolder = new Folder { Id = topLevelFolderId, Name = "Top Library", ParentId = userRootFolderId };
+
+        _libraryManager.Setup(x => x.GetItemById(topLevelFolderId)).Returns(topLevelFolder);
+        _libraryManager.Setup(x => x.GetItemById(userRootFolderId)).Returns(userRoot);
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == topLevelFolderId && !q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = Array.Empty<BaseItem>(), TotalRecordCount = 0 });
+
+        var feed2 = _provider.GetFolder("/base", _userId, topLevelFolderId);
+        Assert.NotNull(feed2);
+        var upLink2 = feed2.Links?.FirstOrDefault(l => l.Rel == "up");
+        Assert.NotNull(upLink2);
+        Assert.Equal("/base/opds/folders", upLink2.Href);
+    }
+
     private sealed class TestFolder : Folder
     {
         private readonly List<BaseItem> _mockChildren;

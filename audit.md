@@ -490,6 +490,7 @@ Or, for amortized O(1), track the oldest entry key as a field updated on every i
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Concurrency / Performance |
+| **Status** | ✅ Resolved |
 | **Files** | `PageStreamService.cs` (lines 261–264, 316–319), `BasicAuthCache.cs` (lines 48–54) |
 
 #### Description
@@ -547,6 +548,7 @@ if (_cache.Count >= MaxCacheEntries)
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Performance |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/PageStreamService.cs` |
 | **Lines** | 105–143 |
 
@@ -838,6 +840,7 @@ public async Task<ActionResult> DownloadBook(Guid bookId)
 |-------|-------|
 | **Severity** | 🔵 Low |
 | **Category** | Bug |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 665–668 |
 
@@ -873,6 +876,7 @@ Or accept multi-character prefixes intentionally and document it.
 |-------|-------|
 | **Severity** | 🔵 Low |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Models/LinkDto.cs` |
 | **Line** | 253 |
 
@@ -896,6 +900,7 @@ Rename to `UpdateTimeStr`. Since the property is `[EditorBrowsable(EditorBrowsab
 |-------|-------|
 | **Severity** | 🔵 Low |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 93, 200, 220, 285, 434, 544, 640, 710, 773, 916 |
 
@@ -928,6 +933,7 @@ Id = "urn:jellyfin:opds:recentlyadded:" + startIndex + ":" + limit
 |-------|-------|
 | **Severity** | 🔵 Low |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Line** | 418 |
 
@@ -951,6 +957,7 @@ Consider using a stack-based approach where the client tracks its navigation pat
 |-------|-------|
 | **Severity** | 🔵 Low |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/PluginServiceRegistrator.cs` |
 | **Lines** | 16–22 |
 
@@ -1083,13 +1090,13 @@ The codebase demonstrates several good practices worth acknowledging:
 | M-3 | 🟡 Medium | Quality | Low (add logging) | **P2** | ✅ Resolved |
 | M-4 | 🟡 Medium | Quality | Low (add logging) | **P2** | ✅ Resolved |
 | M-6 | 🟡 Medium | Security | Medium (design decision) | **P2** | ✅ Resolved |
-| M-1 | 🟡 Medium | Performance | Medium (eviction redesign) | **P3** | Open |
-| M-2 | 🟡 Medium | Performance | Medium (refactor) | **P3** | Open |
-| L-1 | 🔵 Low | Bug | Low | **P3** | Open |
-| L-2 | 🔵 Low | Quality | Trivial | **P3** | Open |
-| L-3 | 🔵 Low | Quality | Low | **P3** | Open |
-| L-4 | 🔵 Low | Quality | Low | **P3** | Open |
-| L-5 | 🔵 Low | Quality | Trivial (add comment) | **P3** | Open |
+| M-1 | 🟡 Medium | Performance | Medium (eviction redesign) | **P3** | ✅ Resolved |
+| M-2 | 🟡 Medium | Performance | Medium (refactor) | **P3** | ✅ Resolved |
+| L-1 | 🔵 Low | Bug | Low | **P3** | ✅ Resolved |
+| L-2 | 🔵 Low | Quality | Trivial | **P3** | ✅ Resolved |
+| L-3 | 🔵 Low | Quality | Low | **P3** | ✅ Resolved |
+| L-4 | 🔵 Low | Quality | Low | **P3** | ✅ Resolved |
+| L-5 | 🔵 Low | Quality | Trivial (add comment) | **P3** | ✅ Resolved |
 | I-1 | ℹ️ Info | Quality | — | — | Open |
 | I-2 | ℹ️ Info | Quality | — | — | Open |
 | I-3 | ℹ️ Info | Quality | Medium | **P4** | Open |

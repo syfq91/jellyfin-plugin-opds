@@ -250,7 +250,7 @@ public class LinkDto
     /// </remarks>
     [XmlAttribute(AttributeName = "mtime")]
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public string? UpdateTimeSTr
+    public string? UpdateTimeStr
     {
         get => UpdateTime?.ToString(CultureInfo.InvariantCulture);
         set

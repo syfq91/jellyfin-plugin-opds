@@ -100,7 +100,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         return new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = "urn:jellyfin:opds:root",
             Links = links.ToArray(),
             Title = GetFeedName("Feeds"),
             Author = PluginAuthor,
@@ -207,7 +207,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         return new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = "urn:jellyfin:opds:books",
             Author = PluginAuthor,
             Title = GetFeedName("Alphabetical"),
             Links = new[]
@@ -227,7 +227,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     {
         var feedDto = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = "urn:jellyfin:opds:genres",
             Author = PluginAuthor,
             Title = GetFeedName("Genres"),
             Links = new[]
@@ -292,7 +292,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feedDto = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:folders:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName("Folders"),
             Links = new[]
@@ -441,7 +441,10 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         if (folder.ParentId != Guid.Empty)
         {
             var parent = _libraryManager.GetItemById(folder.ParentId) as Folder;
-            if (parent is not null && parent is not UserRootFolder && parent.Id != _libraryManager.RootFolder?.Id)
+            if (parent is not null
+                && !IsRootOrUserRootFolder(parent)
+                && (user is null || parent.IsVisibleStandalone(user))
+                && (user is not null || ContainsBooks(parent, null)))
             {
                 upLinkUrl = baseUrl + "/opds/folders/" + parent.Id;
             }
@@ -457,7 +460,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feedDto = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:folders:{folderId:N}:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName(folder.Name),
             Links = new[]
@@ -591,7 +594,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feedDto = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:recentlyadded:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName("Recently Added"),
             Links = new[]
@@ -686,7 +689,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feed = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:favorite:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName("Favorites"),
             Links = new[]
@@ -707,12 +710,18 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <inheritdoc />
     public FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart, int? startIndex = null, int? limit = null)
     {
+        ArgumentNullException.ThrowIfNull(filterStart);
+
         var actualStartIndex = NormalizeStartIndex(startIndex);
         var actualLimit = NormalizeLimit(limit);
 
-        if (filterStart.Length != 1)
+        if (string.Equals(filterStart, "00", StringComparison.Ordinal))
         {
             filterStart = string.Empty;
+        }
+        else if (filterStart.Length != 1)
+        {
+            throw new ArgumentException("Letter filter must be a single character or '00'.", nameof(filterStart));
         }
 
         var query = new InternalItemsQuery
@@ -756,7 +765,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feed = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:books:letter:{(string.IsNullOrEmpty(filterStart) ? "00" : filterStart)}:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName(title),
             Links = new[]
@@ -819,7 +828,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var feed = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:genres:{genreId:N}:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName(genre?.Name ?? "Genre"),
             Links = new[]
@@ -1017,7 +1026,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var encodedSearch = Uri.EscapeDataString(searchTerm);
         var feed = new FeedDto
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = $"urn:jellyfin:opds:search:{encodedSearch}:{actualStartIndex}:{actualLimit}",
             Links = new[]
             {
                 new LinkDto("self", baseUrl + "/opds/search/" + encodedSearch + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
@@ -1271,6 +1280,15 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var cleanUrl = baseUrlPath.TrimEnd('?');
         var separator = cleanUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         return $"{cleanUrl}{separator}startIndex={startIndex}&limit={limit}";
+    }
+
+    private bool IsRootOrUserRootFolder(Folder folder)
+    {
+        return folder is UserRootFolder
+            || folder.Id == _libraryManager.RootFolder?.Id
+            || folder.Id == _libraryManager.GetUserRootFolder()?.Id
+            || string.Equals(folder.GetType().Name, "UserRootFolder", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(folder.GetType().Name, "AggregateFolder", StringComparison.OrdinalIgnoreCase);
     }
 
     private Folder ResolveCollectionFolder(Folder folder)

@@ -21,9 +21,9 @@ namespace Jellyfin.Plugin.Opds.Services;
 public class PageStreamService : IPageStreamService
 {
     /// <summary>
-    /// The maximum amount of page lists kept in the cache.
+    /// The default maximum amount of page lists kept in the cache.
     /// </summary>
-    private const int MaxCacheEntries = 1000;
+    private const int DefaultMaxCacheEntries = 1000;
 
     /// <summary>
     /// The maximum width of a resized page.
@@ -68,6 +68,7 @@ public class PageStreamService : IPageStreamService
     private readonly IImageEncoder _imageEncoder;
     private readonly IPdfPageSource _pdfPageSource;
     private readonly ILogger<PageStreamService> _logger;
+    private readonly int _maxCacheEntries;
     private readonly long _maxPageSizeBytes;
 
     /// <summary>
@@ -84,13 +85,42 @@ public class PageStreamService : IPageStreamService
         IPdfPageSource pdfPageSource,
         ILogger<PageStreamService> logger,
         long maxPageSizeBytes = DefaultMaxPageSizeBytes)
+        : this(libraryManager, imageEncoder, pdfPageSource, logger, DefaultMaxCacheEntries, maxPageSizeBytes)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PageStreamService"/> class with custom cache entry limit.
+    /// </summary>
+    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="imageEncoder">Instance of the <see cref="IImageEncoder"/> interface.</param>
+    /// <param name="pdfPageSource">Instance of the <see cref="IPdfPageSource"/> interface.</param>
+    /// <param name="logger">Instance of the <see cref="ILogger{PageStreamService}"/> interface.</param>
+    /// <param name="maxCacheEntries">The maximum number of cache entries.</param>
+    /// <param name="maxPageSizeBytes">Optional maximum page size limit in bytes.</param>
+    internal PageStreamService(
+        ILibraryManager libraryManager,
+        IImageEncoder imageEncoder,
+        IPdfPageSource pdfPageSource,
+        ILogger<PageStreamService> logger,
+        int maxCacheEntries,
+        long maxPageSizeBytes = DefaultMaxPageSizeBytes)
     {
         _libraryManager = libraryManager;
         _imageEncoder = imageEncoder;
         _pdfPageSource = pdfPageSource;
         _logger = logger;
+        _maxCacheEntries = maxCacheEntries > 0 ? maxCacheEntries : DefaultMaxCacheEntries;
         _maxPageSizeBytes = maxPageSizeBytes > 0 ? maxPageSizeBytes : DefaultMaxPageSizeBytes;
     }
+
+    internal int GetPageCacheCount() => _pageCache.Count;
+
+    internal bool IsPageCached(string path) => _pageCache.ContainsKey(path);
+
+    internal int GetPdfPageCacheCount() => _pdfPageCache.Count;
+
+    internal bool IsPdfPageCached(string path) => _pdfPageCache.ContainsKey(path);
 
     /// <inheritdoc />
     public int GetPageCount(Book book)
@@ -143,12 +173,31 @@ public class PageStreamService : IPageStreamService
             return ExtractPdfPage(book, pageNumber, maxWidth);
         }
 
-        if (!TryGetPageList(book, out var pages) || pageNumber >= pages.Count)
+        var path = book.Path;
+        if (!IsStreamable(path))
         {
             return null;
         }
 
-        return ExtractPage(book, pages[pageNumber], maxWidth);
+        var file = new FileInfo(path);
+        if (!file.Exists)
+        {
+            return null;
+        }
+
+        if (_pageCache.TryGetValue(path, out var cached)
+            && cached.Size == file.Length
+            && cached.LastWriteTimeUtc == file.LastWriteTimeUtc)
+        {
+            if (pageNumber >= cached.Pages.Count)
+            {
+                return null;
+            }
+
+            return ExtractPage(book, cached.Pages[pageNumber], maxWidth);
+        }
+
+        return ExtractPageAndCacheList(book, file, pageNumber, maxWidth);
     }
 
     /// <inheritdoc />
@@ -267,12 +316,8 @@ public class PageStreamService : IPageStreamService
                 .OrderBy(key => key, NaturalSortComparer.Instance)
                 .ToArray();
 
-            if (_pageCache.Count >= MaxCacheEntries)
-            {
-                _pageCache.Clear();
-            }
-
-            var cacheEntry = new CacheEntry(file.LastWriteTimeUtc, file.Length, pageList);
+            EvictPageCacheIfFull();
+            var cacheEntry = new CacheEntry(file.LastWriteTimeUtc, file.Length, pageList, DateTime.UtcNow);
             _pageCache[path] = cacheEntry;
 
             pages = pageList;
@@ -322,12 +367,8 @@ public class PageStreamService : IPageStreamService
             return false;
         }
 
-        if (_pdfPageCache.Count >= MaxCacheEntries)
-        {
-            _pdfPageCache.Clear();
-        }
-
-        _pdfPageCache[path] = new PdfCacheEntry(file.LastWriteTimeUtc, file.Length, count.Value);
+        EvictPdfPageCacheIfFull();
+        _pdfPageCache[path] = new PdfCacheEntry(file.LastWriteTimeUtc, file.Length, count.Value, DateTime.UtcNow);
         pageCount = count.Value;
         return true;
     }
@@ -360,6 +401,48 @@ public class PageStreamService : IPageStreamService
     }
 
     /// <summary>
+    /// Evicts the oldest 25% of entries from the page list cache if it has reached capacity.
+    /// </summary>
+    private void EvictPageCacheIfFull()
+    {
+        if (_pageCache.Count >= _maxCacheEntries)
+        {
+            var evictCount = Math.Max(1, _maxCacheEntries / 4);
+            var toRemove = _pageCache
+                .OrderBy(p => p.Value.CachedAtUtc)
+                .Take(evictCount)
+                .Select(p => p.Key)
+                .ToArray();
+
+            foreach (var key in toRemove)
+            {
+                _pageCache.TryRemove(key, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Evicts the oldest 25% of entries from the PDF page count cache if it has reached capacity.
+    /// </summary>
+    private void EvictPdfPageCacheIfFull()
+    {
+        if (_pdfPageCache.Count >= _maxCacheEntries)
+        {
+            var evictCount = Math.Max(1, _maxCacheEntries / 4);
+            var toRemove = _pdfPageCache
+                .OrderBy(p => p.Value.CachedAtUtc)
+                .Take(evictCount)
+                .Select(p => p.Key)
+                .ToArray();
+
+            foreach (var key in toRemove)
+            {
+                _pdfPageCache.TryRemove(key, out _);
+            }
+        }
+    }
+
+    /// <summary>
     /// Extracts a single page from the book's archive.
     /// </summary>
     /// <param name="book">The book.</param>
@@ -371,8 +454,7 @@ public class PageStreamService : IPageStreamService
         var path = book.Path;
         try
         {
-            byte[] imageBytes;
-            string extension;
+            byte[]? imageBytes;
             using (var stream = File.OpenRead(path))
             using (var archive = ArchiveFactory.OpenArchive(stream))
             {
@@ -382,55 +464,136 @@ public class PageStreamService : IPageStreamService
                     return null;
                 }
 
-                using var entryStream = entry.OpenEntryStream();
-                using var buffer = new MemoryStream();
-                var totalRead = 0L;
-                var readBuffer = new byte[81920];
-                int bytesRead;
-                while ((bytesRead = entryStream.Read(readBuffer, 0, readBuffer.Length)) > 0)
+                imageBytes = ReadEntryBytes(entry, entryKey, path);
+                if (imageBytes is null)
                 {
-                    totalRead += bytesRead;
-                    if (totalRead > _maxPageSizeBytes)
-                    {
-                        _logger.LogWarning("Page {EntryKey} in {Path} exceeds maximum page size limit of {Limit} bytes", entryKey, path, _maxPageSizeBytes);
-                        return null;
-                    }
-
-                    buffer.Write(readBuffer, 0, bytesRead);
+                    return null;
                 }
-
-                imageBytes = buffer.ToArray();
-                extension = Path.GetExtension(entryKey);
             }
 
-            // Fast path: jpeg pages without resizing are served as-is.
-            if (maxWidth is null
-                && (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
-                    || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)))
-            {
-                return new PageStreamResult(imageBytes, PseConstants.JpegMediaType);
-            }
-
-            var jpegBytes = ConvertToJpeg(imageBytes, extension, maxWidth);
-            if (jpegBytes is not null)
-            {
-                return new PageStreamResult(jpegBytes, PseConstants.JpegMediaType);
-            }
-
-            // Fall back to the original image when it cannot be converted,
-            // e.g. when the format is not supported by the image encoder.
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("Serving page {EntryKey} without conversion", entryKey);
-            }
-
-            return new PageStreamResult(imageBytes, MimeTypes.GetMimeType(entryKey));
+            return ProcessImageBytes(imageBytes, entryKey, maxWidth);
         }
         catch (Exception e)
         {
             _logger.LogWarning(e, "Unable to extract page {EntryKey} from {Path}", entryKey, path);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Enumerates all pages, updates the page cache, and extracts the requested page in a single archive open.
+    /// </summary>
+    /// <param name="book">The book.</param>
+    /// <param name="file">File info for cache validation.</param>
+    /// <param name="pageNumber">The zero-based page number.</param>
+    /// <param name="maxWidth">The optional maximum width of the page.</param>
+    /// <returns>The page image, or <c>null</c> when the page could not be extracted.</returns>
+    private PageStreamResult? ExtractPageAndCacheList(Book book, FileInfo file, int pageNumber, int? maxWidth)
+    {
+        var path = book.Path;
+        try
+        {
+            byte[]? imageBytes;
+            string entryKey;
+            using (var stream = File.OpenRead(path))
+            using (var archive = ArchiveFactory.OpenArchive(stream))
+            {
+                var imageEntries = archive.Entries
+                    .Where(IsImageEntry)
+                    .OrderBy(entry => entry.Key!, NaturalSortComparer.Instance)
+                    .ToArray();
+
+                var pageList = imageEntries.Select(e => e.Key!).ToArray();
+
+                EvictPageCacheIfFull();
+                _pageCache[path] = new CacheEntry(file.LastWriteTimeUtc, file.Length, pageList, DateTime.UtcNow);
+
+                if (pageNumber >= imageEntries.Length)
+                {
+                    return null;
+                }
+
+                var entry = imageEntries[pageNumber];
+                entryKey = entry.Key!;
+
+                imageBytes = ReadEntryBytes(entry, entryKey, path);
+                if (imageBytes is null)
+                {
+                    return null;
+                }
+            }
+
+            return ProcessImageBytes(imageBytes, entryKey, maxWidth);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "Unable to read pages from {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads and size-checks the bytes of an archive entry.
+    /// </summary>
+    /// <param name="entry">The archive entry.</param>
+    /// <param name="entryKey">The key of the archive entry.</param>
+    /// <param name="path">The path to the archive file.</param>
+    /// <returns>The extracted byte array, or <c>null</c> if it exceeds the maximum page size.</returns>
+    private byte[]? ReadEntryBytes(IArchiveEntry entry, string entryKey, string path)
+    {
+        using var entryStream = entry.OpenEntryStream();
+        using var buffer = new MemoryStream();
+        var totalRead = 0L;
+        var readBuffer = new byte[81920];
+        int bytesRead;
+        while ((bytesRead = entryStream.Read(readBuffer, 0, readBuffer.Length)) > 0)
+        {
+            totalRead += bytesRead;
+            if (totalRead > _maxPageSizeBytes)
+            {
+                _logger.LogWarning("Page {EntryKey} in {Path} exceeds maximum page size limit of {Limit} bytes", entryKey, path, _maxPageSizeBytes);
+                return null;
+            }
+
+            buffer.Write(readBuffer, 0, bytesRead);
+        }
+
+        return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// Processes extracted image bytes, applying jpeg resizing or conversion if necessary.
+    /// </summary>
+    /// <param name="imageBytes">The raw image bytes.</param>
+    /// <param name="entryKey">The entry key for MIME type detection.</param>
+    /// <param name="maxWidth">The optional maximum width.</param>
+    /// <returns>The resulting page stream result, or <c>null</c> if conversion failed.</returns>
+    private PageStreamResult? ProcessImageBytes(byte[] imageBytes, string entryKey, int? maxWidth)
+    {
+        var extension = Path.GetExtension(entryKey);
+
+        // Fast path: jpeg pages without resizing are served as-is.
+        if (maxWidth is null
+            && (extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)))
+        {
+            return new PageStreamResult(imageBytes, PseConstants.JpegMediaType);
+        }
+
+        var jpegBytes = ConvertToJpeg(imageBytes, extension, maxWidth);
+        if (jpegBytes is not null)
+        {
+            return new PageStreamResult(jpegBytes, PseConstants.JpegMediaType);
+        }
+
+        // Fall back to the original image when it cannot be converted,
+        // e.g. when the format is not supported by the image encoder.
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Serving page {EntryKey} without conversion", entryKey);
+        }
+
+        return new PageStreamResult(imageBytes, MimeTypes.GetMimeType(entryKey));
     }
 
     /// <summary>
@@ -493,7 +656,8 @@ public class PageStreamService : IPageStreamService
     /// <param name="LastWriteTimeUtc">The last write time of the book's file.</param>
     /// <param name="Size">The size of the book's file.</param>
     /// <param name="Pages">The ordered list of image entries.</param>
-    private sealed record CacheEntry(DateTime LastWriteTimeUtc, long Size, IReadOnlyList<string> Pages);
+    /// <param name="CachedAtUtc">The UTC timestamp when this entry was cached.</param>
+    private sealed record CacheEntry(DateTime LastWriteTimeUtc, long Size, IReadOnlyList<string> Pages, DateTime CachedAtUtc);
 
     /// <summary>
     /// A cached page count of a PDF document.
@@ -501,5 +665,6 @@ public class PageStreamService : IPageStreamService
     /// <param name="LastWriteTimeUtc">The last write time of the book's file.</param>
     /// <param name="Size">The size of the book's file.</param>
     /// <param name="PageCount">The number of pages of the document.</param>
-    private sealed record PdfCacheEntry(DateTime LastWriteTimeUtc, long Size, int PageCount);
+    /// <param name="CachedAtUtc">The UTC timestamp when this entry was cached.</param>
+    private sealed record PdfCacheEntry(DateTime LastWriteTimeUtc, long Size, int PageCount, DateTime CachedAtUtc);
 }

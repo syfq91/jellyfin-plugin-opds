@@ -190,18 +190,30 @@ public class OpdsApi : ControllerBase
     /// <returns>The alphabetical feed xml.</returns>
     [HttpGet("Books/Letter/{startFilter}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult> GetAlphabeticalFeed(
         [FromRoute] string startFilter,
         [FromQuery] int? page = null,
         [FromQuery] int? startIndex = null,
         [FromQuery] int? limit = null)
     {
+        if (string.IsNullOrEmpty(startFilter)
+            || (startFilter.Length != 1 && !string.Equals(startFilter, "00", StringComparison.Ordinal)))
+        {
+            return BadRequest();
+        }
+
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
             var (start, lim) = ResolvePagination(page, startIndex, limit);
             var feeds = _opdsFeedProvider.GetAllBooks(Request.PathBase, userId, startFilter, start, lim);
             return BuildOutput(feeds);
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest();
         }
         catch (AuthenticationException)
         {

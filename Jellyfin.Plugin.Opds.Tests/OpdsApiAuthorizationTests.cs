@@ -222,6 +222,34 @@ public class OpdsApiAuthorizationTests : IDisposable
         Assert.IsType<NotFoundResult>(result);
     }
 
+    [Theory]
+    [InlineData("INVALID")]
+    [InlineData("AB")]
+    [InlineData("")]
+    public async Task GetAlphabeticalFeed_Returns_BadRequest_When_Filter_Is_Invalid(string filter)
+    {
+        var result = await _controller.GetAlphabeticalFeed(filter);
+        Assert.IsType<BadRequestResult>(result);
+    }
+
+    [Fact]
+    public async Task GetAlphabeticalFeed_Accepts_00_Or_Single_Character()
+    {
+        _opdsFeedProvider
+            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "00", It.IsAny<int?>(), It.IsAny<int?>()))
+            .Returns(new FeedDto { Title = "All Books" });
+
+        var result = await _controller.GetAlphabeticalFeed("00");
+        Assert.IsType<FileStreamResult>(result);
+
+        _opdsFeedProvider
+            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "A", It.IsAny<int?>(), It.IsAny<int?>()))
+            .Returns(new FeedDto { Title = "Books - A" });
+
+        var resultA = await _controller.GetAlphabeticalFeed("A");
+        Assert.IsType<FileStreamResult>(resultA);
+    }
+
     private static DefaultHttpContext CreateHttpContext(bool authenticated)
     {
         var context = new DefaultHttpContext();

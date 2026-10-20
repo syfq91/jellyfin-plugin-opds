@@ -136,4 +136,48 @@ public class BasicAuthCacheTests
         Assert.Equal(userId, result);
         Assert.Equal(2, callCount);
     }
+
+    [Fact]
+    public async Task GetOrAuthenticateAsync_Evicts_Partial_On_Capacity_Preventing_Stampede()
+    {
+        // Cache with max capacity 4
+        var cache = new BasicAuthCache(4);
+        var u1 = Guid.NewGuid();
+        var u2 = Guid.NewGuid();
+        var u3 = Guid.NewGuid();
+        var u4 = Guid.NewGuid();
+        var u5 = Guid.NewGuid();
+
+        var calls = 0;
+        Task<Guid?> Auth(Guid u)
+        {
+            calls++;
+            return Task.FromResult<Guid?>(u);
+        }
+
+        // Fill cache with 4 entries
+        await cache.GetOrAuthenticateAsync("user1", "p1", "127.0.0.1", () => Auth(u1), _ => true);
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+        await cache.GetOrAuthenticateAsync("user2", "p2", "127.0.0.1", () => Auth(u2), _ => true);
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+        await cache.GetOrAuthenticateAsync("user3", "p3", "127.0.0.1", () => Auth(u3), _ => true);
+        await Task.Delay(10, TestContext.Current.CancellationToken);
+        await cache.GetOrAuthenticateAsync("user4", "p4", "127.0.0.1", () => Auth(u4), _ => true);
+        Assert.Equal(4, calls);
+
+        // Add 5th entry to trigger eviction (evicts oldest 25% = 1 entry: user1)
+        await cache.GetOrAuthenticateAsync("user5", "p5", "127.0.0.1", () => Auth(u5), _ => true);
+        Assert.Equal(5, calls);
+
+        // user2, user3, user4, user5 should still be in cache (no additional auth calls)
+        await cache.GetOrAuthenticateAsync("user2", "p2", "127.0.0.1", () => Auth(u2), _ => true);
+        await cache.GetOrAuthenticateAsync("user3", "p3", "127.0.0.1", () => Auth(u3), _ => true);
+        await cache.GetOrAuthenticateAsync("user4", "p4", "127.0.0.1", () => Auth(u4), _ => true);
+        await cache.GetOrAuthenticateAsync("user5", "p5", "127.0.0.1", () => Auth(u5), _ => true);
+        Assert.Equal(5, calls); // No new calls: entries were retained!
+
+        // user1 was evicted, so accessing user1 should trigger 1 new auth call
+        await cache.GetOrAuthenticateAsync("user1", "p1", "127.0.0.1", () => Auth(u1), _ => true);
+        Assert.Equal(6, calls);
+    }
 }

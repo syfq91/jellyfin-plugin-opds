@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -11,8 +12,26 @@ namespace Jellyfin.Plugin.Opds.Services;
 /// </summary>
 public class BasicAuthCache : IBasicAuthCache
 {
-    private const int MaxCacheEntries = 1000;
+    private const int DefaultMaxCacheEntries = 1000;
+    private readonly int _maxCacheEntries;
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BasicAuthCache"/> class with default settings.
+    /// </summary>
+    public BasicAuthCache()
+        : this(DefaultMaxCacheEntries)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BasicAuthCache"/> class with a custom maximum cache entry limit.
+    /// </summary>
+    /// <param name="maxCacheEntries">The maximum cache entries.</param>
+    internal BasicAuthCache(int maxCacheEntries)
+    {
+        _maxCacheEntries = maxCacheEntries;
+    }
 
     /// <inheritdoc />
     public async Task<Guid?> GetOrAuthenticateAsync(
@@ -46,12 +65,23 @@ public class BasicAuthCache : IBasicAuthCache
         var authenticatedUserId = await authenticateFunc().ConfigureAwait(false);
         if (authenticatedUserId.HasValue && authenticatedUserId.Value != Guid.Empty)
         {
-            if (_cache.Count >= MaxCacheEntries)
+            if (_cache.Count >= _maxCacheEntries)
             {
                 PruneExpired(now);
-                if (_cache.Count >= MaxCacheEntries)
+                if (_cache.Count >= _maxCacheEntries)
                 {
-                    _cache.Clear();
+                    // Evict oldest 25% of entries by expiration time to prevent cache stampede
+                    var evictCount = Math.Max(1, _maxCacheEntries / 4);
+                    var toRemove = _cache
+                        .OrderBy(p => p.Value.ExpirationUtc)
+                        .Take(evictCount)
+                        .Select(p => p.Key)
+                        .ToArray();
+
+                    foreach (var k in toRemove)
+                    {
+                        _cache.TryRemove(k, out _);
+                    }
                 }
             }
 

@@ -279,6 +279,71 @@ public class PageStreamServiceTests : IDisposable
         Assert.Null(service.GetPageReference(book, 7));
     }
 
+    [Fact]
+    public void GetPage_UncachedArchive_Extracts_Page_And_Populates_Cache_In_Single_Pass()
+    {
+        var book = CreateBook();
+        var service = CreateService(book);
+
+        // Fetch page 0 on uncached book with valid non-empty bookId
+        var page = service.GetPage(Guid.NewGuid(), 0, null);
+        Assert.NotNull(page);
+        Assert.Equal(FirstPageBytes, page.Content);
+
+        // Verify page list is now in cache: subsequent page count query returns 4 without reopening
+        Assert.Equal(4, service.GetPageCount(book));
+    }
+
+    [Fact]
+    public void Cache_Evicts_Partial_On_Capacity_Preventing_Stampede()
+    {
+        // Service configured with capacity of 4
+        var libraryManager = new Mock<ILibraryManager>();
+        var imageEncoder = new Mock<IImageEncoder>();
+        imageEncoder.SetupGet(x => x.SupportsImageEncoding).Returns(false);
+
+        var service = new PageStreamService(
+            libraryManager.Object,
+            imageEncoder.Object,
+            Mock.Of<IPdfPageSource>(),
+            Mock.Of<ILogger<PageStreamService>>(),
+            maxCacheEntries: 4);
+
+        var books = new Book[5];
+        for (var i = 0; i < 5; i++)
+        {
+            var path = Path.Combine(_directory, $"evict-book-{i}.cbz");
+            CreateArchive(path, ("001.jpg", FirstPageBytes));
+            books[i] = new Book { Id = Guid.NewGuid(), Path = path };
+            libraryManager.Setup(x => x.GetItemById(books[i].Id)).Returns(books[i]);
+        }
+
+        // Cache entries 0..3
+        for (var i = 0; i < 4; i++)
+        {
+            Assert.Equal(1, service.GetPageCount(books[i]));
+            System.Threading.Thread.Sleep(5);
+        }
+
+        Assert.Equal(4, service.GetPageCacheCount());
+        Assert.True(service.IsPageCached(books[0].Path!));
+
+        // Cache 5th entry (triggers eviction of oldest 25% = 1 entry: books[0])
+        Assert.Equal(1, service.GetPageCount(books[4]));
+
+        // Total count remains at 4 (not cleared to 1)
+        Assert.Equal(4, service.GetPageCacheCount());
+
+        // books[0] was evicted
+        Assert.False(service.IsPageCached(books[0].Path!));
+
+        // books[1], books[2], books[3], books[4] remain cached
+        Assert.True(service.IsPageCached(books[1].Path!));
+        Assert.True(service.IsPageCached(books[2].Path!));
+        Assert.True(service.IsPageCached(books[3].Path!));
+        Assert.True(service.IsPageCached(books[4].Path!));
+    }
+
     private static void CreateArchive(string path, params (string Key, byte[] Content)[] entries)
     {
         using var fileStream = File.Open(path, FileMode.Create);

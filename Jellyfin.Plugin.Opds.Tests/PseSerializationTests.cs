@@ -76,6 +76,26 @@ public class PseSerializationTests
     }
 
     [Fact]
+    public void UpdateTime_Roundtrips_Via_UpdateTimeStr()
+    {
+        var link = new LinkDto(PseConstants.StreamRel, "/opds/stream/1?page={pageNumber}", "image/jpeg");
+        var date = new DateTime(2026, 10, 20, 15, 30, 0, DateTimeKind.Utc);
+
+        link.UpdateTime = date;
+        Assert.NotNull(link.UpdateTimeStr);
+
+        link.UpdateTime = null;
+        Assert.Null(link.UpdateTimeStr);
+
+        link.UpdateTimeStr = "2026-10-20T15:30:00Z";
+        Assert.NotNull(link.UpdateTime);
+        Assert.Equal(date, link.UpdateTime.Value.ToUniversalTime());
+
+        link.UpdateTimeStr = null;
+        Assert.Null(link.UpdateTime);
+    }
+
+    [Fact]
     public void PageCount_Roundtrips_Through_Serialization()
     {
         var link = new LinkDto(PseConstants.StreamRel, "/opds/stream/1?page={pageNumber}", "image/jpeg")
