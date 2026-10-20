@@ -8,6 +8,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Opds.Models;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
@@ -38,6 +39,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     private readonly IPageStreamService _pageStreamService;
     private readonly IUserDataManager _userDataManager;
     private readonly IImageEncoder? _imageEncoder;
+    private readonly IApplicationPaths? _applicationPaths;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsFeedProvider"/> class.
@@ -49,6 +51,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
     /// <param name="imageEncoder">Optional instance of the <see cref="IImageEncoder"/> interface.</param>
+    /// <param name="applicationPaths">Optional instance of the <see cref="IApplicationPaths"/> interface.</param>
     public OpdsFeedProvider(
         ILibraryManager libraryManager,
         ISearchManager searchManager,
@@ -56,7 +59,8 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         IUserManager userManager,
         IPageStreamService pageStreamService,
         IUserDataManager userDataManager,
-        IImageEncoder? imageEncoder = null)
+        IImageEncoder? imageEncoder = null,
+        IApplicationPaths? applicationPaths = null)
     {
         _libraryManager = libraryManager;
         _searchManager = searchManager;
@@ -65,6 +69,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         _pageStreamService = pageStreamService;
         _userDataManager = userDataManager;
         _imageEncoder = imageEncoder;
+        _applicationPaths = applicationPaths;
     }
 
     /// <inheritdoc />
@@ -864,10 +869,17 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 return null;
             }
 
-            var cacheKey = $"opds-thumb-{fileInfo.Length}-{fileInfo.LastWriteTimeUtc.Ticks}-{maxWidth}.jpg";
-            var cachePath = Path.Combine(Path.GetTempPath(), cacheKey);
+            var cacheDir = _applicationPaths is not null
+                ? Path.Combine(_applicationPaths.CachePath, "opds-thumbnails")
+                : Path.Combine(Path.GetTempPath(), "jellyfin-opds-thumbnails");
 
-            if (File.Exists(cachePath))
+            Directory.CreateDirectory(cacheDir);
+
+            var cacheKey = $"opds-thumb-{bookId:N}-{fileInfo.Length}-{fileInfo.LastWriteTimeUtc.Ticks}-{maxWidth}.jpg";
+            var cachePath = Path.Combine(cacheDir, cacheKey);
+
+            var existingCache = new FileInfo(cachePath);
+            if (existingCache.Exists && (existingCache.Attributes & FileAttributes.ReparsePoint) == 0)
             {
                 return File.ReadAllBytes(cachePath);
             }
@@ -880,27 +892,74 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             };
 
             var tempOutput = cachePath + ".tmp";
-            var encodedPath = _imageEncoder.EncodeImage(
-                imagePath,
-                fileInfo.LastWriteTimeUtc,
-                tempOutput,
-                true,
-                null,
-                80,
-                options,
-                ImageFormat.Jpg);
-
-            if (File.Exists(encodedPath))
+            string? encodedPath = null;
+            try
             {
-                if (encodedPath != cachePath)
+                encodedPath = _imageEncoder.EncodeImage(
+                    imagePath,
+                    fileInfo.LastWriteTimeUtc,
+                    tempOutput,
+                    true,
+                    null,
+                    80,
+                    options,
+                    ImageFormat.Jpg);
+
+                if (File.Exists(encodedPath))
                 {
-                    File.Move(encodedPath, cachePath, true);
+                    if (!string.Equals(encodedPath, cachePath, StringComparison.Ordinal))
+                    {
+                        if (File.Exists(cachePath))
+                        {
+                            var destInfo = new FileInfo(cachePath);
+                            if ((destInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                            {
+                                File.Delete(cachePath);
+                            }
+                        }
+
+                        File.Move(encodedPath, cachePath, true);
+                    }
+
+                    var newCache = new FileInfo(cachePath);
+                    if (newCache.Exists && (newCache.Attributes & FileAttributes.ReparsePoint) == 0)
+                    {
+                        return File.ReadAllBytes(cachePath);
+                    }
                 }
 
-                return File.ReadAllBytes(cachePath);
+                return null;
             }
+            finally
+            {
+                if (File.Exists(tempOutput))
+                {
+                    try
+                    {
+                        File.Delete(tempOutput);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                }
 
-            return null;
+                if (encodedPath is not null && !string.Equals(encodedPath, cachePath, StringComparison.Ordinal) && File.Exists(encodedPath))
+                {
+                    try
+                    {
+                        File.Delete(encodedPath);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
+                }
+            }
         }
         catch (Exception)
         {
@@ -936,12 +995,13 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
         }
 
+        var encodedSearch = Uri.EscapeDataString(searchTerm);
         var feed = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
             Links = new[]
             {
-                new LinkDto("self", baseUrl + "/opds/search/" + searchTerm + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
+                new LinkDto("self", baseUrl + "/opds/search/" + encodedSearch + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
                 new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation"),
                 new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
@@ -952,7 +1012,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Entries = entries
         };
 
-        ApplyPagination(feed, baseUrl + "/opds/search/" + Uri.EscapeDataString(searchTerm), actualStartIndex, actualLimit, searchResult.TotalRecordCount);
+        ApplyPagination(feed, baseUrl + "/opds/search/" + encodedSearch, actualStartIndex, actualLimit, searchResult.TotalRecordCount);
         return feed;
     }
 

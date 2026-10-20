@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Opds.Configuration;
@@ -9,8 +10,11 @@ using Jellyfin.Plugin.Opds.Models;
 using Jellyfin.Plugin.Opds.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Drawing;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
 using MediaBrowser.Model.Serialization;
@@ -465,6 +469,150 @@ public class OpdsFeedProviderTests : IDisposable
         var entry = feed.Entries?.FirstOrDefault(e => e.Title == "Audiobooks Library");
         Assert.NotNull(entry);
         Assert.Equal($"/base/opds/folders/{collFolderId}", entry.Links?.FirstOrDefault()?.Href);
+    }
+
+    [Fact]
+    public async Task SearchBooks_UrlEncodes_SearchTerm_In_SelfLink_And_Pagination()
+    {
+        var searchManager = new Mock<ISearchManager>();
+        searchManager.Setup(x => x.GetSearchHintsAsync(It.IsAny<SearchQuery>(), It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(new QueryResult<SearchHintInfo>
+            {
+                Items = new[] { new SearchHintInfo { Item = _book } },
+                TotalRecordCount = 100
+            });
+
+        var applicationHost = new Mock<MediaBrowser.Controller.IServerApplicationHost>();
+        applicationHost.SetupGet(x => x.FriendlyName).Returns("TestServer");
+
+        var userManager = new Mock<IUserManager>();
+        userManager.Setup(x => x.GetUserById(It.IsAny<Guid>())).Returns(new User("test", "auth", "pass"));
+
+        var provider = new OpdsFeedProvider(
+            _libraryManager.Object,
+            searchManager.Object,
+            applicationHost.Object,
+            userManager.Object,
+            _pageStreamService.Object,
+            Mock.Of<IUserDataManager>());
+
+        var searchTerm = "C# & C++ programming?";
+        var encodedTerm = Uri.EscapeDataString(searchTerm);
+
+        var feed = await provider.SearchBooks("http://localhost", _userId, searchTerm, 0, 50);
+
+        var selfLink = feed.Links?.FirstOrDefault(l => l.Rel == "self");
+        Assert.NotNull(selfLink);
+        Assert.Equal($"http://localhost/opds/search/{encodedTerm}?startIndex=0&limit=50", selfLink.Href);
+
+        var nextLink = feed.Links?.FirstOrDefault(l => l.Rel == "next");
+        Assert.NotNull(nextLink);
+        Assert.Contains(encodedTerm, nextLink.Href, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetBookThumbnail_Uses_BookId_In_CacheKey_And_Plugin_CachePath()
+    {
+        var coverFile = Path.Combine(_directory, "cover.jpg");
+        File.WriteAllBytes(coverFile, new byte[] { 1, 2, 3 });
+
+        _book.SetImage(new ItemImageInfo { Type = ImageType.Primary, Path = coverFile }, 0);
+        _libraryManager.Setup(x => x.GetItemById(_book.Id)).Returns(_book);
+
+        var appPaths = new Mock<IApplicationPaths>();
+        var cacheDir = Path.Combine(_directory, "cache");
+        appPaths.SetupGet(x => x.CachePath).Returns(cacheDir);
+
+        var imageEncoder = new Mock<IImageEncoder>();
+        imageEncoder.SetupGet(x => x.SupportsImageEncoding).Returns(true);
+        imageEncoder.SetupGet(x => x.SupportedInputFormats).Returns(new[] { "jpg" });
+        imageEncoder.Setup(x => x.EncodeImage(
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<ImageOrientation?>(),
+                It.IsAny<int>(),
+                It.IsAny<ImageProcessingOptions>(),
+                It.IsAny<ImageFormat>()))
+            .Returns<string, DateTime, string, bool, ImageOrientation?, int, ImageProcessingOptions, ImageFormat>((inPath, date, outPath, crop, orientation, quality, opt, fmt) =>
+            {
+                File.WriteAllBytes(outPath, new byte[] { 4, 5, 6 });
+                return outPath;
+            });
+
+        var provider = new OpdsFeedProvider(
+            _libraryManager.Object,
+            Mock.Of<ISearchManager>(),
+            Mock.Of<MediaBrowser.Controller.IServerApplicationHost>(),
+            Mock.Of<IUserManager>(),
+            _pageStreamService.Object,
+            Mock.Of<IUserDataManager>(),
+            imageEncoder.Object,
+            appPaths.Object);
+
+        var thumbnail = provider.GetBookThumbnail(_book.Id, 240);
+
+        Assert.NotNull(thumbnail);
+        Assert.Equal(new byte[] { 4, 5, 6 }, thumbnail);
+
+        var expectedThumbDir = Path.Combine(cacheDir, "opds-thumbnails");
+        Assert.True(Directory.Exists(expectedThumbDir));
+        var cachedFiles = Directory.GetFiles(expectedThumbDir);
+        Assert.Single(cachedFiles);
+        Assert.Contains(_book.Id.ToString("N"), cachedFiles[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetBookThumbnail_CleansUp_TempFiles_On_Encoding_Failure()
+    {
+        var coverFile = Path.Combine(_directory, "cover_fail.jpg");
+        File.WriteAllBytes(coverFile, new byte[] { 1, 2, 3 });
+
+        _book.SetImage(new ItemImageInfo { Type = ImageType.Primary, Path = coverFile }, 0);
+        _libraryManager.Setup(x => x.GetItemById(_book.Id)).Returns(_book);
+
+        var appPaths = new Mock<IApplicationPaths>();
+        var cacheDir = Path.Combine(_directory, "cache-fail");
+        appPaths.SetupGet(x => x.CachePath).Returns(cacheDir);
+
+        var imageEncoder = new Mock<IImageEncoder>();
+        imageEncoder.SetupGet(x => x.SupportsImageEncoding).Returns(true);
+        imageEncoder.SetupGet(x => x.SupportedInputFormats).Returns(new[] { "jpg" });
+        imageEncoder.Setup(x => x.EncodeImage(
+                It.IsAny<string>(),
+                It.IsAny<DateTime>(),
+                It.IsAny<string>(),
+                It.IsAny<bool>(),
+                It.IsAny<ImageOrientation?>(),
+                It.IsAny<int>(),
+                It.IsAny<ImageProcessingOptions>(),
+                It.IsAny<ImageFormat>()))
+            .Returns<string, DateTime, string, bool, ImageOrientation?, int, ImageProcessingOptions, ImageFormat>((inPath, date, outPath, crop, orientation, quality, opt, fmt) =>
+            {
+                File.WriteAllBytes(outPath, new byte[] { 7, 8, 9 });
+                throw new InvalidOperationException("Encoder crashed");
+            });
+
+        var provider = new OpdsFeedProvider(
+            _libraryManager.Object,
+            Mock.Of<ISearchManager>(),
+            Mock.Of<MediaBrowser.Controller.IServerApplicationHost>(),
+            Mock.Of<IUserManager>(),
+            _pageStreamService.Object,
+            Mock.Of<IUserDataManager>(),
+            imageEncoder.Object,
+            appPaths.Object);
+
+        var thumbnail = provider.GetBookThumbnail(_book.Id, 240);
+
+        Assert.Null(thumbnail);
+        var expectedThumbDir = Path.Combine(cacheDir, "opds-thumbnails");
+        if (Directory.Exists(expectedThumbDir))
+        {
+            var tempFiles = Directory.GetFiles(expectedThumbDir, "*.tmp");
+            Assert.Empty(tempFiles);
+        }
     }
 
     private sealed class TestFolder : Folder

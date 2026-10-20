@@ -89,6 +89,29 @@ public class PageStreamServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetPage_Returns_Null_When_Page_Exceeds_MaxPageSizeBytes()
+    {
+        var book = CreateBook();
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(x => x.GetItemById(book.Id)).Returns(book);
+
+        var imageEncoder = new Mock<IImageEncoder>();
+        imageEncoder.SetupGet(x => x.SupportsImageEncoding).Returns(false);
+
+        // FirstPageBytes is 3 bytes; limit maxPageSizeBytes to 2 bytes
+        var service = new PageStreamService(
+            libraryManager.Object,
+            imageEncoder.Object,
+            Mock.Of<IPdfPageSource>(),
+            Mock.Of<ILogger<PageStreamService>>(),
+            maxPageSizeBytes: 2);
+
+        var page = service.GetPage(book.Id, 0, null);
+
+        Assert.Null(page);
+    }
+
+    [Fact]
     public void GetPage_Uses_Natural_Page_Order()
     {
         var service = CreateService(CreateBook());

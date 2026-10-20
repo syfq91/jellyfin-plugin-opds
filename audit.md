@@ -193,6 +193,7 @@ Update the `GetOrAuthenticateAsync` call site to pass `remoteIp` through.
 |-------|-------|
 | **Severity** | 🟠 High |
 | **Category** | Bug |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 919, 930 |
 
@@ -300,6 +301,7 @@ var allowAnonymous = config?.AllowAnonymousAccess ?? false;
 |-------|-------|
 | **Severity** | 🟠 High |
 | **Category** | Bug / Resource Leak |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 842–883 |
 
@@ -376,6 +378,7 @@ finally
 |-------|-------|
 | **Severity** | 🟠 High |
 | **Category** | Security |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 842–843 |
 
@@ -664,6 +667,7 @@ catch (Exception ex)
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Security |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/PageStreamService.cs` |
 | **Lines** | 376–379 |
 
@@ -1065,10 +1069,10 @@ The codebase demonstrates several good practices worth acknowledging:
 |----|----------|----------|--------|----------|--------|
 | C-1 | 🔴 Critical | Security | Low (1-line change) | **P0** | ✅ Resolved |
 | M-7 | 🟡 Medium | Security | Medium (3 endpoints) | **P0** | ✅ Resolved |
-| H-1 | 🟠 High | Bug | Low (2-line change) | **P1** | Open |
-| H-4 | 🟠 High | Security | Low (add bookId to key) | **P1** | Open |
-| H-3 | 🟠 High | Bug | Low (add try/finally) | **P1** | Open |
-| M-5 | 🟡 Medium | Security | Low (add size check) | **P1** | Open |
+| H-1 | 🟠 High | Bug | Low (2-line change) | **P1** | ✅ Resolved |
+| H-4 | 🟠 High | Security | Low (add bookId to key) | **P1** | ✅ Resolved |
+| H-3 | 🟠 High | Bug | Low (add try/finally) | **P1** | ✅ Resolved |
+| M-5 | 🟡 Medium | Security | Low (add size check) | **P1** | ✅ Resolved |
 | H-2 | 🟠 High | Bug | Medium (12+ call sites) | **P2** | Open |
 | H-5 | 🟠 High | Performance | Low (use MinBy) | **P2** | Open |
 | M-3 | 🟡 Medium | Quality | Low (add logging) | **P2** | Open |

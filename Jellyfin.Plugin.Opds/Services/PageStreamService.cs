@@ -56,6 +56,11 @@ public class PageStreamService : IPageStreamService
     /// </summary>
     private static readonly IReadOnlyCollection<ImageFormat> SupportedOutputFormats = new[] { ImageFormat.Jpg };
 
+    /// <summary>
+    /// The default maximum allowed size in bytes for an extracted archive page entry (100 MB).
+    /// </summary>
+    public const long DefaultMaxPageSizeBytes = 100 * 1024 * 1024;
+
     private readonly ConcurrentDictionary<string, CacheEntry> _pageCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PdfCacheEntry> _pdfPageCache = new(StringComparer.Ordinal);
 
@@ -63,6 +68,7 @@ public class PageStreamService : IPageStreamService
     private readonly IImageEncoder _imageEncoder;
     private readonly IPdfPageSource _pdfPageSource;
     private readonly ILogger<PageStreamService> _logger;
+    private readonly long _maxPageSizeBytes;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PageStreamService"/> class.
@@ -71,16 +77,19 @@ public class PageStreamService : IPageStreamService
     /// <param name="imageEncoder">Instance of the <see cref="IImageEncoder"/> interface.</param>
     /// <param name="pdfPageSource">Instance of the <see cref="IPdfPageSource"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{PageStreamService}"/> interface.</param>
+    /// <param name="maxPageSizeBytes">Optional maximum page size limit in bytes.</param>
     public PageStreamService(
         ILibraryManager libraryManager,
         IImageEncoder imageEncoder,
         IPdfPageSource pdfPageSource,
-        ILogger<PageStreamService> logger)
+        ILogger<PageStreamService> logger,
+        long maxPageSizeBytes = DefaultMaxPageSizeBytes)
     {
         _libraryManager = libraryManager;
         _imageEncoder = imageEncoder;
         _pdfPageSource = pdfPageSource;
         _logger = logger;
+        _maxPageSizeBytes = maxPageSizeBytes > 0 ? maxPageSizeBytes : DefaultMaxPageSizeBytes;
     }
 
     /// <inheritdoc />
@@ -375,7 +384,21 @@ public class PageStreamService : IPageStreamService
 
                 using var entryStream = entry.OpenEntryStream();
                 using var buffer = new MemoryStream();
-                entryStream.CopyTo(buffer);
+                var totalRead = 0L;
+                var readBuffer = new byte[81920];
+                int bytesRead;
+                while ((bytesRead = entryStream.Read(readBuffer, 0, readBuffer.Length)) > 0)
+                {
+                    totalRead += bytesRead;
+                    if (totalRead > _maxPageSizeBytes)
+                    {
+                        _logger.LogWarning("Page {EntryKey} in {Path} exceeds maximum page size limit of {Limit} bytes", entryKey, path, _maxPageSizeBytes);
+                        return null;
+                    }
+
+                    buffer.Write(readBuffer, 0, bytesRead);
+                }
+
                 imageBytes = buffer.ToArray();
                 extension = Path.GetExtension(entryKey);
             }
