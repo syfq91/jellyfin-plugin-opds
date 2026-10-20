@@ -14,6 +14,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddScoped<IOpdsFeedProvider, OpdsFeedProvider>();
+        serviceCollection.AddSingleton<IBasicAuthCache, BasicAuthCache>();
         serviceCollection.AddSingleton<IPageStreamService, PageStreamService>();
         serviceCollection.AddSingleton<IPdfPageSource, PdfPageSource>();
         serviceCollection.AddSingleton<IProgressionStore, ProgressionStore>();

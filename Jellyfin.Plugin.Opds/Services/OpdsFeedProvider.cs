@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
@@ -7,9 +8,11 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Opds.Models;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
@@ -33,6 +36,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     private readonly IUserManager _userManager;
     private readonly IPageStreamService _pageStreamService;
     private readonly IUserDataManager _userDataManager;
+    private readonly IImageEncoder? _imageEncoder;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsFeedProvider"/> class.
@@ -43,13 +47,15 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="pageStreamService">Instance of the <see cref="IPageStreamService"/> interface.</param>
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
+    /// <param name="imageEncoder">Optional instance of the <see cref="IImageEncoder"/> interface.</param>
     public OpdsFeedProvider(
         ILibraryManager libraryManager,
         ISearchManager searchManager,
         IServerApplicationHost serverApplicationHost,
         IUserManager userManager,
         IPageStreamService pageStreamService,
-        IUserDataManager userDataManager)
+        IUserDataManager userDataManager,
+        IImageEncoder? imageEncoder = null)
     {
         _libraryManager = libraryManager;
         _searchManager = searchManager;
@@ -57,6 +63,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         _userManager = userManager;
         _pageStreamService = pageStreamService;
         _userDataManager = userDataManager;
+        _imageEncoder = imageEncoder;
     }
 
     /// <inheritdoc />
@@ -255,8 +262,11 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     }
 
     /// <inheritdoc />
-    public FeedDto GetRecentlyAdded(string baseUrl, Guid userId)
+    public FeedDto GetRecentlyAdded(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
     {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
         var feedDto = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
@@ -264,7 +274,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Title = GetFeedName("Recently Added"),
             Links = new[]
             {
-                new LinkDto("self", baseUrl + "/opds/recentlyadded?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("self", baseUrl + "/opds/books/recentlyadded?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
@@ -279,7 +289,8 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.DateCreated, SortOrder.Descending) },
             Recursive = true,
             DtoOptions = new DtoOptions(),
-            Limit = 25
+            StartIndex = actualStartIndex,
+            Limit = actualLimit
         };
 
         if (userId != Guid.Empty)
@@ -291,24 +302,31 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
+        var totalCount = 0;
         var queryResult = _libraryManager.GetItemsResult(query);
         if (queryResult is not null)
         {
+            totalCount = queryResult.TotalRecordCount;
             var books = queryResult.Items.OfType<Book>().ToList();
             var userItemData = GetUserItemData(userId, books);
+            var parentNameCache = new Dictionary<Guid, string>();
             foreach (var book in books)
             {
-                feedDto.Entries.Add(CreateEntry(book, baseUrl, userItemData));
+                feedDto.Entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
             }
         }
 
+        ApplyPagination(feedDto, baseUrl + "/opds/books/recentlyadded", actualStartIndex, actualLimit, totalCount);
         return feedDto;
     }
 
     /// <inheritdoc />
-    public FeedDto GetFavoriteBooks(string baseUrl, Guid userId)
+    public FeedDto GetFavoriteBooks(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
     {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
         var entries = new List<EntryDto>();
+        var totalCount = 0;
 
         // Favorites require a user to be set, so just return empty list otherwise.
         if (userId != Guid.Empty)
@@ -319,7 +337,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
                 IsFavorite = true,
                 Recursive = true,
-                DtoOptions = new DtoOptions()
+                DtoOptions = new DtoOptions(),
+                StartIndex = actualStartIndex,
+                Limit = actualLimit
             };
 
             var user = _userManager.GetUserById(userId);
@@ -328,19 +348,21 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 query.SetUser(user);
             }
 
-            var items = _libraryManager.GetItemList(query);
-            if (items is not null)
+            var queryResult = _libraryManager.GetItemsResult(query);
+            if (queryResult is not null)
             {
-                var books = items.OfType<Book>().ToList();
+                totalCount = queryResult.TotalRecordCount;
+                var books = queryResult.Items.OfType<Book>().ToList();
                 var userItemData = GetUserItemData(userId, books);
+                var parentNameCache = new Dictionary<Guid, string>();
                 foreach (var book in books)
                 {
-                    entries.Add(CreateEntry(book, baseUrl, userItemData));
+                    entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
                 }
             }
         }
 
-        return new FeedDto
+        var feed = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
             Author = PluginAuthor,
@@ -355,11 +377,17 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             },
             Entries = entries
         };
+
+        ApplyPagination(feed, baseUrl + "/opds/books/favorite", actualStartIndex, actualLimit, totalCount);
+        return feed;
     }
 
     /// <inheritdoc />
-    public FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart)
+    public FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart, int? startIndex = null, int? limit = null)
     {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
         if (filterStart.Length != 1)
         {
             filterStart = string.Empty;
@@ -371,7 +399,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
             NameStartsWith = filterStart,
             Recursive = true,
-            DtoOptions = new DtoOptions()
+            DtoOptions = new DtoOptions(),
+            StartIndex = actualStartIndex,
+            Limit = actualLimit
         };
 
         if (userId != Guid.Empty)
@@ -383,15 +413,18 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
-        var items = _libraryManager.GetItemList(query);
+        var queryResult = _libraryManager.GetItemsResult(query);
         var entries = new List<EntryDto>();
-        if (items is not null)
+        var totalCount = 0;
+        if (queryResult is not null)
         {
-            var books = items.OfType<Book>().ToList();
+            totalCount = queryResult.TotalRecordCount;
+            var books = queryResult.Items.OfType<Book>().ToList();
             var userItemData = GetUserItemData(userId, books);
+            var parentNameCache = new Dictionary<Guid, string>();
             foreach (var book in books)
             {
-                entries.Add(CreateEntry(book, baseUrl, userItemData));
+                entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
             }
         }
 
@@ -399,7 +432,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             ? "Books"
             : "Books - " + filterStart;
 
-        return new FeedDto
+        var feed = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
             Author = PluginAuthor,
@@ -414,17 +447,26 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             },
             Entries = entries
         };
+
+        var paginationPath = baseUrl + "/opds/books/letter/" + (string.IsNullOrEmpty(filterStart) ? "00" : filterStart);
+        ApplyPagination(feed, paginationPath, actualStartIndex, actualLimit, totalCount);
+        return feed;
     }
 
     /// <inheritdoc />
-    public FeedDto GetBooksByGenre(string baseUrl, Guid userId, Guid genreId)
+    public FeedDto GetBooksByGenre(string baseUrl, Guid userId, Guid genreId, int? startIndex = null, int? limit = null)
     {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
         var query = new InternalItemsQuery
         {
             IncludeItemTypes = BookItemTypes,
             OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
             GenreIds = new[] { genreId },
-            DtoOptions = new DtoOptions()
+            DtoOptions = new DtoOptions(),
+            StartIndex = actualStartIndex,
+            Limit = actualLimit
         };
 
         if (userId != Guid.Empty)
@@ -436,21 +478,24 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
-        var queryResult = _libraryManager.GetItemList(query);
+        var queryResult = _libraryManager.GetItemsResult(query);
         var entries = new List<EntryDto>();
+        var totalCount = 0;
         if (queryResult is not null)
         {
-            var books = queryResult.OfType<Book>().ToList();
+            totalCount = queryResult.TotalRecordCount;
+            var books = queryResult.Items.OfType<Book>().ToList();
             var userItemData = GetUserItemData(userId, books);
+            var parentNameCache = new Dictionary<Guid, string>();
             foreach (var book in books)
             {
-                entries.Add(CreateEntry(book, baseUrl, userItemData));
+                entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
             }
         }
 
         var genre = _libraryManager.GetItemById(genreId);
 
-        return new FeedDto
+        var feed = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
             Author = PluginAuthor,
@@ -465,6 +510,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             },
             Entries = entries
         };
+
+        ApplyPagination(feed, baseUrl + "/opds/genres/" + genreId, actualStartIndex, actualLimit, totalCount);
+        return feed;
     }
 
     /// <inheritdoc />
@@ -482,11 +530,95 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     }
 
     /// <inheritdoc />
-    public async Task<FeedDto> SearchBooks(string baseUrl, Guid userId, string searchTerm)
+    public DateTime? GetBookImageLastModified(Guid bookId)
     {
+        var item = _libraryManager.GetItemById(bookId);
+        if (item is null || string.IsNullOrEmpty(item.PrimaryImagePath))
+        {
+            return null;
+        }
+
+        var imagePath = item.PrimaryImagePath;
+        return item.DateModified != default ? item.DateModified : File.GetLastWriteTimeUtc(imagePath);
+    }
+
+    /// <inheritdoc />
+    public byte[]? GetBookThumbnail(Guid bookId, int maxWidth)
+    {
+        var imagePath = GetBookImage(bookId);
+        if (string.IsNullOrEmpty(imagePath) || _imageEncoder is null || !_imageEncoder.SupportsImageEncoding)
+        {
+            return null;
+        }
+
+        try
+        {
+            var extension = Path.GetExtension(imagePath);
+            if (!_imageEncoder.SupportedInputFormats.Contains(extension.TrimStart('.'), StringComparer.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var fileInfo = new FileInfo(imagePath);
+            if (!fileInfo.Exists)
+            {
+                return null;
+            }
+
+            var cacheKey = $"opds-thumb-{fileInfo.Length}-{fileInfo.LastWriteTimeUtc.Ticks}-{maxWidth}.jpg";
+            var cachePath = Path.Combine(Path.GetTempPath(), cacheKey);
+
+            if (File.Exists(cachePath))
+            {
+                return File.ReadAllBytes(cachePath);
+            }
+
+            var options = new ImageProcessingOptions
+            {
+                MaxWidth = maxWidth,
+                Quality = 80,
+                SupportedOutputFormats = new[] { ImageFormat.Jpg }
+            };
+
+            var tempOutput = cachePath + ".tmp";
+            var encodedPath = _imageEncoder.EncodeImage(
+                imagePath,
+                fileInfo.LastWriteTimeUtc,
+                tempOutput,
+                true,
+                null,
+                80,
+                options,
+                ImageFormat.Jpg);
+
+            if (File.Exists(encodedPath))
+            {
+                if (encodedPath != cachePath)
+                {
+                    File.Move(encodedPath, cachePath, true);
+                }
+
+                return File.ReadAllBytes(cachePath);
+            }
+
+            return null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<FeedDto> SearchBooks(string baseUrl, Guid userId, string searchTerm, int? startIndex = null, int? limit = null)
+    {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
         var searchResult = await _searchManager.GetSearchHintsAsync(new SearchQuery
         {
-            Limit = 100,
+            StartIndex = actualStartIndex,
+            Limit = actualLimit,
             SearchTerm = searchTerm,
             IncludeItemTypes = BookItemTypes,
             UserId = userId
@@ -499,18 +631,19 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var entries = new List<EntryDto>(books.Count);
         var userItemData = GetUserItemData(userId, books);
+        var parentNameCache = new Dictionary<Guid, string>();
         foreach (var book in books)
         {
-            entries.Add(CreateEntry(book, baseUrl, userItemData));
+            entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
         }
 
-        return new FeedDto
+        var feed = new FeedDto
         {
             Id = Guid.NewGuid().ToString(),
             Links = new[]
             {
                 new LinkDto("self", baseUrl + "/opds/search/" + searchTerm + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation", "Start"),
+                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation"),
                 new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
                 new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
                 new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
@@ -519,6 +652,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Author = PluginAuthor,
             Entries = entries
         };
+
+        ApplyPagination(feed, baseUrl + "/opds/search/" + Uri.EscapeDataString(searchTerm), actualStartIndex, actualLimit, searchResult.TotalRecordCount);
+        return feed;
     }
 
     /// <inheritdoc />
@@ -560,8 +696,26 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         return title + " - " + (string.IsNullOrEmpty(serverName) ? "Jellyfin" : serverName);
     }
 
-    private EntryDto CreateEntry(Book book, string baseUrl, IReadOnlyDictionary<Guid, UserItemData> userItemData)
+    private EntryDto CreateEntry(
+        Book book,
+        string baseUrl,
+        IReadOnlyDictionary<Guid, UserItemData> userItemData,
+        Dictionary<Guid, string>? parentNameCache = null)
     {
+        string? authorName = null;
+        if (book.ParentId != Guid.Empty && parentNameCache is not null && parentNameCache.TryGetValue(book.ParentId, out var cachedName))
+        {
+            authorName = cachedName;
+        }
+        else
+        {
+            authorName = book.GetParent()?.Name;
+            if (book.ParentId != Guid.Empty && parentNameCache is not null && !string.IsNullOrEmpty(authorName))
+            {
+                parentNameCache[book.ParentId] = authorName;
+            }
+        }
+
         var entry = new EntryDto(
             book.Name,
             book.Id.ToString(),
@@ -569,7 +723,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         {
             Author = new AuthorDto
             {
-                Name = book.GetParent().Name
+                Name = authorName ?? "Unknown"
             },
             Summary = book.Overview,
             Links = new List<LinkDto>()
@@ -581,7 +735,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             if (!string.IsNullOrEmpty(imageMimeType))
             {
                 entry.Links.Add(new("http://opds-spec.org/image", baseUrl + "/opds/cover/" + book.Id, imageMimeType));
-                entry.Links.Add(new("http://opds-spec.org/image/thumbnail", baseUrl + "/opds/cover/" + book.Id, imageMimeType));
+                entry.Links.Add(new("http://opds-spec.org/image/thumbnail", baseUrl + "/opds/thumbnail/" + book.Id, "image/jpeg"));
             }
         }
 
@@ -600,7 +754,10 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         if (OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
         {
-            var pageCount = _pageStreamService.GetPageCount(book);
+            var totalTicks = book.RunTimeTicks.GetValueOrDefault();
+            var pageCount = totalTicks > 10000
+                ? (int)(totalTicks / 10000)
+                : _pageStreamService.GetPageCount(book);
             if (pageCount > 0)
             {
                 var streamLink = new LinkDto(
@@ -661,5 +818,80 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         }
 
         return _userDataManager.GetUserDataBatch(items, user);
+    }
+
+    private static int NormalizeLimit(int? limit)
+    {
+        var defaultLimit = OpdsPlugin.Instance?.Configuration.DefaultPageSize ?? 50;
+        if (defaultLimit <= 0)
+        {
+            defaultLimit = 50;
+        }
+
+        if (limit is null or <= 0)
+        {
+            return defaultLimit;
+        }
+
+        return Math.Min(limit.Value, 500);
+    }
+
+    private static int NormalizeStartIndex(int? startIndex)
+    {
+        return startIndex.HasValue && startIndex.Value > 0 ? startIndex.Value : 0;
+    }
+
+    private static void ApplyPagination(
+        FeedDto feed,
+        string feedUrl,
+        int startIndex,
+        int limit,
+        int totalCount)
+    {
+        feed.TotalResults = totalCount;
+        feed.StartIndex = startIndex;
+        feed.ItemsPerPage = limit;
+
+        var links = new List<LinkDto>(feed.Links);
+
+        var selfUrl = BuildPagedUrl(feedUrl, startIndex, limit);
+        var selfIndex = links.FindIndex(l => string.Equals(l.Rel, "self", StringComparison.OrdinalIgnoreCase));
+        if (selfIndex >= 0)
+        {
+            links[selfIndex] = new LinkDto("self", selfUrl, "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation");
+        }
+        else
+        {
+            links.Insert(0, new LinkDto("self", selfUrl, "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"));
+        }
+
+        links.Add(new LinkDto("first", BuildPagedUrl(feedUrl, 0, limit), "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"));
+
+        if (startIndex > 0)
+        {
+            var prevStartIndex = Math.Max(0, startIndex - limit);
+            links.Add(new LinkDto("previous", BuildPagedUrl(feedUrl, prevStartIndex, limit), "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"));
+        }
+
+        if (startIndex + limit < totalCount)
+        {
+            var nextStartIndex = startIndex + limit;
+            links.Add(new LinkDto("next", BuildPagedUrl(feedUrl, nextStartIndex, limit), "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"));
+        }
+
+        if (totalCount > 0)
+        {
+            var lastStartIndex = Math.Max(0, ((totalCount - 1) / limit) * limit);
+            links.Add(new LinkDto("last", BuildPagedUrl(feedUrl, lastStartIndex, limit), "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"));
+        }
+
+        feed.Links = links.ToArray();
+    }
+
+    private static string BuildPagedUrl(string baseUrlPath, int startIndex, int limit)
+    {
+        var cleanUrl = baseUrlPath.TrimEnd('?');
+        var separator = cleanUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{cleanUrl}{separator}startIndex={startIndex}&limit={limit}";
     }
 }

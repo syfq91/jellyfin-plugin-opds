@@ -34,6 +34,7 @@ public class OpdsApi : ControllerBase
     private readonly IPageStreamService _pageStreamService;
     private readonly ILibraryManager _libraryManager;
     private readonly IProgressionService _progressionService;
+    private readonly IBasicAuthCache _basicAuthCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsApi"/> class.
@@ -43,18 +44,21 @@ public class OpdsApi : ControllerBase
     /// <param name="pageStreamService">The page stream service.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="progressionService">The progression service.</param>
+    /// <param name="basicAuthCache">The basic authentication cache.</param>
     public OpdsApi(
         IUserManager userManager,
         IOpdsFeedProvider opdsFeedProvider,
         IPageStreamService pageStreamService,
         ILibraryManager libraryManager,
-        IProgressionService progressionService)
+        IProgressionService progressionService,
+        IBasicAuthCache? basicAuthCache = null)
     {
         _userManager = userManager;
         _opdsFeedProvider = opdsFeedProvider;
         _pageStreamService = pageStreamService;
         _libraryManager = libraryManager;
         _progressionService = progressionService;
+        _basicAuthCache = basicAuthCache ?? new BasicAuthCache();
     }
 
     /// <summary>
@@ -123,15 +127,22 @@ public class OpdsApi : ControllerBase
     /// <summary>
     /// Gets the list of recently added books.
     /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The recently added feed xml.</returns>
     [HttpGet("Books/RecentlyAdded")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetRecentlyAdded()
+    public async Task<ActionResult> GetRecentlyAdded(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = _opdsFeedProvider.GetRecentlyAdded(Request.PathBase, userId);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = _opdsFeedProvider.GetRecentlyAdded(Request.PathBase, userId, start, lim);
             return BuildOutput(feeds);
         }
         catch (AuthenticationException)
@@ -144,15 +155,22 @@ public class OpdsApi : ControllerBase
     /// <summary>
     /// Gets the list of favorite books.
     /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The recently added feed xml.</returns>
     [HttpGet("Books/Favorite")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetFavoriteBooks()
+    public async Task<ActionResult> GetFavoriteBooks(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = _opdsFeedProvider.GetFavoriteBooks(Request.PathBase, userId);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = _opdsFeedProvider.GetFavoriteBooks(Request.PathBase, userId, start, lim);
             return BuildOutput(feeds);
         }
         catch (AuthenticationException)
@@ -166,15 +184,23 @@ public class OpdsApi : ControllerBase
     /// Gets the list of letters to filter by.
     /// </summary>
     /// <param name="startFilter">The start filter.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The alphabetical feed xml.</returns>
     [HttpGet("Books/Letter/{startFilter}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetAlphabeticalFeed([FromRoute] string startFilter)
+    public async Task<ActionResult> GetAlphabeticalFeed(
+        [FromRoute] string startFilter,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = _opdsFeedProvider.GetAllBooks(Request.PathBase, userId, startFilter);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = _opdsFeedProvider.GetAllBooks(Request.PathBase, userId, startFilter, start, lim);
             return BuildOutput(feeds);
         }
         catch (AuthenticationException)
@@ -188,15 +214,23 @@ public class OpdsApi : ControllerBase
     /// Gets the list of books in the genre.
     /// </summary>
     /// <param name="genreId">The genre id.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The books feed xml.</returns>
     [HttpGet("Genres/{genreId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetBooksByGenre([FromRoute] Guid genreId)
+    public async Task<ActionResult> GetBooksByGenre(
+        [FromRoute] Guid genreId,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = _opdsFeedProvider.GetBooksByGenre(Request.PathBase, userId, genreId);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = _opdsFeedProvider.GetBooksByGenre(Request.PathBase, userId, genreId, start, lim);
             return BuildOutput(feeds);
         }
         catch (AuthenticationException)
@@ -210,15 +244,23 @@ public class OpdsApi : ControllerBase
     /// Gets the search result.
     /// </summary>
     /// <param name="searchTerms">The search terms.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The search feed xml.</returns>
     [HttpGet("Search/{searchTerms}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> SearchBookFromRoute(string searchTerms)
+    public async Task<ActionResult> SearchBookFromRoute(
+        string searchTerms,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms)
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms, start, lim)
                 .ConfigureAwait(false);
             return BuildOutput(feeds);
         }
@@ -237,13 +279,19 @@ public class OpdsApi : ControllerBase
     /// <param name="searchTerms">The search terms as historically used by this plugin.</param>
     /// <param name="q">The search terms as defined by the OPDS spec.</param>
     /// <param name="query">The search terms as some OPDS clients provide them.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The search feed xml.</returns>
     [HttpGet("Search")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult> SearchBookFromQuery(
         [FromQuery] string? searchTerms = null,
         [FromQuery] string? q = null,
-        [FromQuery] string? query = null)
+        [FromQuery] string? query = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
     {
         searchTerms ??= q ?? query;
 
@@ -257,7 +305,8 @@ public class OpdsApi : ControllerBase
         try
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
-            var feeds = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms)
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms, start, lim)
                 .ConfigureAwait(false);
             return BuildOutput(feeds);
         }
@@ -313,6 +362,7 @@ public class OpdsApi : ControllerBase
     /// <returns>The book image.</returns>
     [HttpGet("Cover/{bookId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> GetBookImage(Guid bookId)
     {
@@ -323,6 +373,75 @@ public class OpdsApi : ControllerBase
             if (string.IsNullOrEmpty(imagePath))
             {
                 return NotFound();
+            }
+
+            var lastModified = _opdsFeedProvider.GetBookImageLastModified(bookId);
+            Response.Headers.CacheControl = "public, max-age=604800";
+
+            if (lastModified.HasValue)
+            {
+                if (Request.Headers.IfModifiedSince.Count > 0
+                    && DateTimeOffset.TryParse(Request.Headers.IfModifiedSince.ToString(), out var ifModifiedSince)
+                    && lastModified.Value <= ifModifiedSince.UtcDateTime.AddSeconds(1))
+                {
+                    return StatusCode(StatusCodes.Status304NotModified);
+                }
+
+                Response.GetTypedHeaders().LastModified = lastModified.Value;
+            }
+
+            return PhysicalFile(imagePath, MimeTypes.GetMimeType(imagePath));
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Gets the downscaled book cover thumbnail.
+    /// </summary>
+    /// <param name="bookId">The book id.</param>
+    /// <param name="maxWidth">The optional maximum width of the thumbnail.</param>
+    /// <returns>The thumbnail image.</returns>
+    [HttpGet("Thumbnail/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> GetBookThumbnail(Guid bookId, [FromQuery] int? maxWidth = null)
+    {
+        try
+        {
+            await AuthorizeAsync().ConfigureAwait(false);
+            var imagePath = _opdsFeedProvider.GetBookImage(bookId);
+            if (string.IsNullOrEmpty(imagePath))
+            {
+                return NotFound();
+            }
+
+            var lastModified = _opdsFeedProvider.GetBookImageLastModified(bookId);
+            Response.Headers.CacheControl = "public, max-age=604800, immutable";
+
+            if (lastModified.HasValue)
+            {
+                if (Request.Headers.IfModifiedSince.Count > 0
+                    && DateTimeOffset.TryParse(Request.Headers.IfModifiedSince.ToString(), out var ifModifiedSince)
+                    && lastModified.Value <= ifModifiedSince.UtcDateTime.AddSeconds(1))
+                {
+                    return StatusCode(StatusCodes.Status304NotModified);
+                }
+
+                Response.GetTypedHeaders().LastModified = lastModified.Value;
+            }
+
+            var configuredWidth = OpdsPlugin.Instance?.Configuration.ThumbnailWidth ?? 240;
+            var width = (maxWidth is > 0 and <= 1000) ? maxWidth.Value : configuredWidth;
+
+            var thumbnailBytes = _opdsFeedProvider.GetBookThumbnail(bookId, width);
+            if (thumbnailBytes is not null)
+            {
+                return File(thumbnailBytes, "image/jpeg");
             }
 
             return PhysicalFile(imagePath, MimeTypes.GetMimeType(imagePath));
@@ -560,14 +679,24 @@ public class OpdsApi : ControllerBase
         var username = credentialString[..credentialSplitIndex];
         var password = credentialString[(credentialSplitIndex + 1)..];
 
-        var user = await _userManager.AuthenticateUser(
-                username,
-                password,
-                HttpContext.GetNormalizedRemoteIP().ToString(),
-                true)
-            .ConfigureAwait(false);
+        var remoteIp = HttpContext.GetNormalizedRemoteIP().ToString();
+        var userId = await _basicAuthCache.GetOrAuthenticateAsync(
+            username,
+            password,
+            remoteIp,
+            async () =>
+            {
+                var user = await _userManager.AuthenticateUser(
+                        username,
+                        password,
+                        remoteIp,
+                        true)
+                    .ConfigureAwait(false);
+                return user?.Id;
+            },
+            id => _userManager.GetUserById(id) is not null).ConfigureAwait(false);
 
-        if (user is null)
+        if (userId is null || userId == Guid.Empty)
         {
             if (allowAnonymous)
             {
@@ -577,7 +706,7 @@ public class OpdsApi : ControllerBase
             throw new AuthenticationException("Basic Authentication is required");
         }
 
-        return user.Id;
+        return userId.Value;
     }
 
     private FileStreamResult BuildOutput(FeedDto outputFeed)
@@ -672,5 +801,23 @@ public class OpdsApi : ControllerBase
             ContentType = ProgressionConstants.ProblemMediaType,
             StatusCode = statusCode
         };
+    }
+
+    private static (int StartIndex, int Limit) ResolvePagination(int? page, int? startIndex, int? limit)
+    {
+        var configuredLimit = OpdsPlugin.Instance?.Configuration.DefaultPageSize ?? 50;
+        var actualLimit = (limit is > 0 and <= 500) ? limit.Value : configuredLimit;
+
+        if (startIndex.HasValue && startIndex.Value >= 0)
+        {
+            return (startIndex.Value, actualLimit);
+        }
+
+        if (page.HasValue && page.Value > 1)
+        {
+            return ((page.Value - 1) * actualLimit, actualLimit);
+        }
+
+        return (0, actualLimit);
     }
 }

@@ -44,6 +44,24 @@ public class FeedDto
     public AuthorDto? Author { get; set; }
 
     /// <summary>
+    /// Gets or sets the total results count.
+    /// </summary>
+    [XmlElement(ElementName = "totalResults", Namespace = "http://a9.com/-/spec/opensearch/1.1/")]
+    public int? TotalResults { get; set; }
+
+    /// <summary>
+    /// Gets or sets the start index (0-based) of the current page.
+    /// </summary>
+    [XmlElement(ElementName = "startIndex", Namespace = "http://a9.com/-/spec/opensearch/1.1/")]
+    public int? StartIndex { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of items per page.
+    /// </summary>
+    [XmlElement(ElementName = "itemsPerPage", Namespace = "http://a9.com/-/spec/opensearch/1.1/")]
+    public int? ItemsPerPage { get; set; }
+
+    /// <summary>
     /// Gets or sets the list of entries.
     /// </summary>
     [XmlElement(ElementName = "entry")]
@@ -60,6 +78,12 @@ public class FeedDto
     /// </summary>
     [XmlAttribute(AttributeName = "pse", Namespace = "http://www.w3.org/2000/xmlns/")]
     public string XmlnsPse { get; set; } = PseConstants.Namespace;
+
+    /// <summary>
+    /// Gets or sets the OpenSearch namespace declaration.
+    /// </summary>
+    [XmlAttribute(AttributeName = "opensearch", Namespace = "http://www.w3.org/2000/xmlns/")]
+    public string XmlnsOpenSearch { get; set; } = "http://a9.com/-/spec/opensearch/1.1/";
 
     /// <summary>
     /// Gets or sets the xml text.

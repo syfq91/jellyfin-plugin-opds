@@ -15,6 +15,9 @@ public class PluginConfiguration : BasePluginConfiguration
         AllowAnonymousAccess = false;
         EnablePageStreaming = false;
         EnableProgression = false;
+        DefaultPageSize = 50;
+        ThumbnailWidth = 240;
+        AuthCacheDurationMinutes = 10;
     }
 
     /// <summary>
@@ -33,4 +36,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// exposed via the OPDS progression specification.
     /// </summary>
     public bool EnableProgression { get; set; }
+
+    /// <summary>
+    /// Gets or sets the default number of items per page in OPDS feeds.
+    /// </summary>
+    public int DefaultPageSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum width in pixels for generated book cover thumbnails.
+    /// </summary>
+    public int ThumbnailWidth { get; set; }
+
+    /// <summary>
+    /// Gets or sets the duration in minutes to cache basic authentication credentials.
+    /// </summary>
+    public int AuthCacheDurationMinutes { get; set; }
 }

@@ -35,6 +35,8 @@ public class OpdsFeedProviderTests : IDisposable
     private readonly Guid _userId = Guid.NewGuid();
     private readonly Guid _parentId = Guid.NewGuid();
     private readonly Book _book;
+    private readonly Mock<ILibraryManager> _libraryManager;
+    private readonly Mock<IPageStreamService> _pageStreamService;
     private readonly OpdsFeedProvider _provider;
 
     /// <summary>
@@ -65,10 +67,10 @@ public class OpdsFeedProviderTests : IDisposable
 
         var parent = new Folder { Name = "Author" };
 
-        var libraryManager = new Mock<ILibraryManager>();
-        libraryManager.Setup(x => x.GetItemsResult(It.IsAny<InternalItemsQuery>()))
-            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book } });
-        libraryManager.Setup(x => x.GetItemById(It.IsAny<Guid>())).Returns(parent);
+        _libraryManager = new Mock<ILibraryManager>();
+        _libraryManager.Setup(x => x.GetItemsResult(It.IsAny<InternalItemsQuery>()))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+        _libraryManager.Setup(x => x.GetItemById(It.IsAny<Guid>())).Returns(parent);
 
         var user = new User("test", "auth", "pass");
 
@@ -87,20 +89,20 @@ public class OpdsFeedProviderTests : IDisposable
                 }
             });
 
-        var pageStreamService = new Mock<IPageStreamService>();
-        pageStreamService.Setup(x => x.GetPageCount(It.IsAny<Book>())).Returns(35);
+        _pageStreamService = new Mock<IPageStreamService>();
+        _pageStreamService.Setup(x => x.GetPageCount(It.IsAny<Book>())).Returns(35);
 
         var applicationHost = new Mock<MediaBrowser.Controller.IServerApplicationHost>();
         applicationHost.SetupGet(x => x.FriendlyName).Returns("TestServer");
 
-        BaseItem.LibraryManager = libraryManager.Object;
+        BaseItem.LibraryManager = _libraryManager.Object;
 
         _provider = new OpdsFeedProvider(
-            libraryManager.Object,
+            _libraryManager.Object,
             Mock.Of<ISearchManager>(),
             applicationHost.Object,
             userManager.Object,
-            pageStreamService.Object,
+            _pageStreamService.Object,
             userDataManager.Object);
     }
 
@@ -188,6 +190,84 @@ public class OpdsFeedProviderTests : IDisposable
         var feed = _provider.GetFeeds("/base");
 
         Assert.Null(GetLink(feed, AuthenticationConstants.Rel));
+    }
+
+    [Fact]
+    public void Pagination_Links_And_OpenSearch_Elements_Are_Emitted()
+    {
+        _libraryManager.Setup(x => x.GetItemsResult(It.IsAny<InternalItemsQuery>()))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 120 });
+
+        var feed = _provider.GetRecentlyAdded("/base", _userId, startIndex: 50, limit: 50);
+
+        Assert.Equal(120, feed.TotalResults);
+        Assert.Equal(50, feed.StartIndex);
+        Assert.Equal(50, feed.ItemsPerPage);
+
+        var firstLink = feed.Links?.FirstOrDefault(l => l.Rel == "first");
+        var prevLink = feed.Links?.FirstOrDefault(l => l.Rel == "prev" || l.Rel == "previous");
+        var nextLink = feed.Links?.FirstOrDefault(l => l.Rel == "next");
+        var lastLink = feed.Links?.FirstOrDefault(l => l.Rel == "last");
+
+        Assert.NotNull(firstLink);
+        Assert.NotNull(prevLink);
+        Assert.NotNull(nextLink);
+        Assert.NotNull(lastLink);
+
+        Assert.Contains("startIndex=0", firstLink.Href, StringComparison.Ordinal);
+        Assert.Contains("startIndex=0", prevLink.Href, StringComparison.Ordinal);
+        Assert.Contains("startIndex=100", nextLink.Href, StringComparison.Ordinal);
+        Assert.Contains("startIndex=100", lastLink.Href, StringComparison.Ordinal);
+
+        var xml = Serialize(feed);
+        Assert.Contains("<opensearch:totalResults>120</opensearch:totalResults>", xml, StringComparison.Ordinal);
+        Assert.Contains("<opensearch:startIndex>50</opensearch:startIndex>", xml, StringComparison.Ordinal);
+        Assert.Contains("<opensearch:itemsPerPage>50</opensearch:itemsPerPage>", xml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Entry_Contains_Thumbnail_And_Cover_Links()
+    {
+        _book.SetImage(
+            new ItemImageInfo
+            {
+                Type = MediaBrowser.Model.Entities.ImageType.Primary,
+                Path = Path.Combine(_directory, "cover.jpg")
+            },
+            0);
+
+        try
+        {
+            var feed = _provider.GetRecentlyAdded("/base", _userId);
+            var entry = feed.Entries?.FirstOrDefault();
+            Assert.NotNull(entry);
+
+            var thumbLink = entry.Links?.FirstOrDefault(l => l.Rel == "http://opds-spec.org/image/thumbnail");
+            var coverLink = entry.Links?.FirstOrDefault(l => l.Rel == "http://opds-spec.org/image");
+
+            Assert.NotNull(thumbLink);
+            Assert.NotNull(coverLink);
+            Assert.Equal($"/base/opds/thumbnail/{_book.Id}", thumbLink.Href);
+            Assert.Equal($"/base/opds/cover/{_book.Id}", coverLink.Href);
+        }
+        finally
+        {
+            _book.ImageInfos = Array.Empty<ItemImageInfo>();
+        }
+    }
+
+    [Fact]
+    public void FastPath_PageCount_Uses_RunTimeTicks_When_Available()
+    {
+        OpdsPlugin.Instance!.Configuration.EnablePageStreaming = true;
+        _book.RunTimeTicks = 77 * PseConstants.TicksPerPage;
+
+        var feed = _provider.GetRecentlyAdded("/base", _userId);
+
+        var link = GetStreamLink(feed);
+        Assert.NotNull(link);
+        Assert.Equal("77", link.Attribute(XName.Get("count", PseNamespace))?.Value);
+        _pageStreamService.Verify(x => x.GetPageCount(It.IsAny<Book>()), Times.Never);
     }
 
     private static XElement? GetStreamLink(FeedDto feed)

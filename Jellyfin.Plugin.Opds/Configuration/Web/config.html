@@ -41,6 +41,27 @@
                     page by page such as EPUB.
                 </div>
             </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtDefaultPageSize">Feed Page Size</label>
+                <input id="txtDefaultPageSize" type="number" min="1" max="500" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    The number of book entries returned per page in OPDS feeds (default: 50).
+                </div>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtThumbnailWidth">Cover Thumbnail Width (px)</label>
+                <input id="txtThumbnailWidth" type="number" min="50" max="1000" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    The maximum width in pixels for downscaled cover thumbnails served to OPDS readers (default: 240).
+                </div>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtAuthCacheDuration">Authentication Cache Duration (minutes)</label>
+                <input id="txtAuthCacheDuration" type="number" min="1" max="60" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    How long valid basic authentication credentials are cached in memory to speed up concurrent cover loading (default: 10).
+                </div>
+            </div>
             <br/>
             <button id="saveConfig" is="emby-button" type="submit" class="raised button-submit block">
                 <span>Save</span>
