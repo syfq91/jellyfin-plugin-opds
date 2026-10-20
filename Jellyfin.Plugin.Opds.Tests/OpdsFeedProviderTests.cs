@@ -740,6 +740,41 @@ public class OpdsFeedProviderTests : IDisposable
         var fav2 = _provider.GetFavoriteBooks("/base", _userId, 0, 50);
         Assert.Equal("urn:jellyfin:opds:favorite:0:50", fav1.Id);
         Assert.Equal(fav1.Id, fav2.Id);
+
+        var genreId = Guid.NewGuid();
+        var genreBooks1 = _provider.GetBooksByGenre("/base", _userId, genreId, 0, 50);
+        var genreBooks2 = _provider.GetBooksByGenre("/base", _userId, genreId, 0, 50);
+        Assert.Equal($"urn:jellyfin:opds:genres:{genreId:N}:0:50", genreBooks1.Id);
+        Assert.Equal(genreBooks1.Id, genreBooks2.Id);
+    }
+
+    [Fact]
+    public void GetBooksByGenre_Returns_Feed_With_Genre_Books()
+    {
+        var genreId = Guid.NewGuid();
+        var genre = new Genre { Id = genreId, Name = "Science Fiction" };
+        _libraryManager.Setup(x => x.GetItemById(genreId)).Returns(genre);
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.GenreIds != null && q.GenreIds.Contains(genreId))))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+
+        var feed = _provider.GetBooksByGenre("/base", _userId, genreId, 0, 50);
+
+        Assert.NotNull(feed);
+        Assert.Equal($"urn:jellyfin:opds:genres:{genreId:N}:0:50", feed.Id);
+        Assert.Equal("Science Fiction - TestServer", feed.Title);
+        Assert.Single(feed.Entries!);
+        Assert.Equal(_book.Name, feed.Entries![0].Title);
+    }
+
+    [Fact]
+    public void GetFavoriteBooks_AnonymousUser_Returns_Empty_Feed()
+    {
+        var feed = _provider.GetFavoriteBooks("/base", Guid.Empty, 0, 50);
+
+        Assert.NotNull(feed);
+        Assert.Equal("urn:jellyfin:opds:favorite:0:50", feed.Id);
+        Assert.Empty(feed.Entries!);
+        Assert.Equal(0, feed.TotalResults);
     }
 
     [Fact]

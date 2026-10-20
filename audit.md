@@ -1021,6 +1021,7 @@ This is expected and correct. The suppressions are file-scoped, which is appropr
 |-------|-------|
 | **Severity** | ℹ️ Info |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 
 #### Description
@@ -1099,7 +1100,7 @@ The codebase demonstrates several good practices worth acknowledging:
 | L-5 | 🔵 Low | Quality | Trivial (add comment) | **P3** | ✅ Resolved |
 | I-1 | ℹ️ Info | Quality | — | — | Open |
 | I-2 | ℹ️ Info | Quality | — | — | Open |
-| I-3 | ℹ️ Info | Quality | Medium | **P4** | Open |
+| I-3 | ℹ️ Info | Quality | Medium | **P4** | ✅ Resolved |
 | I-4 | ℹ️ Info | Quality | — | — | N/A |
 
 ---

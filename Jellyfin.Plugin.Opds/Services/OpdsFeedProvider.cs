@@ -210,14 +210,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Id = "urn:jellyfin:opds:books",
             Author = PluginAuthor,
             Title = GetFeedName("Alphabetical"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/books?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + "/opds/books?"),
             Entries = entries
         };
     }
@@ -230,14 +223,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Id = "urn:jellyfin:opds:genres",
             Author = PluginAuthor,
             Title = GetFeedName("Genres"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/genres?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + "/opds/genres?"),
             Entries = new List<EntryDto>()
         };
 
@@ -295,14 +281,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Id = $"urn:jellyfin:opds:folders:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName("Folders"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/folders", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + "/opds/folders"),
             Entries = new List<EntryDto>()
         };
 
@@ -463,14 +442,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Id = $"urn:jellyfin:opds:folders:{folderId:N}:{actualStartIndex}:{actualLimit}",
             Author = PluginAuthor,
             Title = GetFeedName(folder.Name),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/folders/" + folderId, "application/atom+xml;profile=opds-catalog"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", upLinkUrl, "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + "/opds/folders/" + folderId, upLinkUrl),
             Entries = new List<EntryDto>()
         };
 
@@ -589,131 +561,55 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <inheritdoc />
     public FeedDto GetRecentlyAdded(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
     {
-        var actualStartIndex = NormalizeStartIndex(startIndex);
-        var actualLimit = NormalizeLimit(limit);
-
-        var feedDto = new FeedDto
-        {
-            Id = $"urn:jellyfin:opds:recentlyadded:{actualStartIndex}:{actualLimit}",
-            Author = PluginAuthor,
-            Title = GetFeedName("Recently Added"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/books/recentlyadded?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
-            Entries = new List<EntryDto>()
-        };
-
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = BookItemTypes,
-            OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.DateCreated, SortOrder.Descending) },
-            Recursive = true,
-            DtoOptions = new DtoOptions(),
-            StartIndex = actualStartIndex,
-            Limit = actualLimit
+            OrderBy = [(ItemSortBy.DateCreated, SortOrder.Descending)],
+            Recursive = true
         };
 
-        if (userId != Guid.Empty)
-        {
-            var user = _userManager.GetUserById(userId);
-            if (user is not null)
-            {
-                query.SetUser(user);
-            }
-        }
-
-        var totalCount = 0;
-        var queryResult = _libraryManager.GetItemsResult(query);
-        if (queryResult is not null)
-        {
-            totalCount = queryResult.TotalRecordCount;
-            var books = queryResult.Items.OfType<Book>().ToList();
-            var userItemData = GetUserItemData(userId, books);
-            var parentNameCache = new Dictionary<Guid, string>();
-            foreach (var book in books)
-            {
-                feedDto.Entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
-            }
-        }
-
-        ApplyPagination(feedDto, baseUrl + "/opds/books/recentlyadded", actualStartIndex, actualLimit, totalCount);
-        return feedDto;
+        return BuildBookFeed(
+            baseUrl,
+            feedIdPrefix: "recentlyadded",
+            feedTitle: "Recently Added",
+            selfPath: baseUrl + "/opds/books/recentlyadded?",
+            paginationPath: baseUrl + "/opds/books/recentlyadded",
+            userId: userId,
+            query: query,
+            startIndex: startIndex,
+            limit: limit);
     }
 
     /// <inheritdoc />
     public FeedDto GetFavoriteBooks(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
     {
-        var actualStartIndex = NormalizeStartIndex(startIndex);
-        var actualLimit = NormalizeLimit(limit);
-        var entries = new List<EntryDto>();
-        var totalCount = 0;
-
-        // Favorites require a user to be set, so just return empty list otherwise.
+        // Favorites require a user to be set, so query is null otherwise.
+        InternalItemsQuery? query = null;
         if (userId != Guid.Empty)
         {
-            var query = new InternalItemsQuery
+            query = new InternalItemsQuery
             {
-                IncludeItemTypes = BookItemTypes,
-                OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
+                OrderBy = [(ItemSortBy.SortName, SortOrder.Ascending)],
                 IsFavorite = true,
-                Recursive = true,
-                DtoOptions = new DtoOptions(),
-                StartIndex = actualStartIndex,
-                Limit = actualLimit
+                Recursive = true
             };
-
-            var user = _userManager.GetUserById(userId);
-            if (user is not null)
-            {
-                query.SetUser(user);
-            }
-
-            var queryResult = _libraryManager.GetItemsResult(query);
-            if (queryResult is not null)
-            {
-                totalCount = queryResult.TotalRecordCount;
-                var books = queryResult.Items.OfType<Book>().ToList();
-                var userItemData = GetUserItemData(userId, books);
-                var parentNameCache = new Dictionary<Guid, string>();
-                foreach (var book in books)
-                {
-                    entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
-                }
-            }
         }
 
-        var feed = new FeedDto
-        {
-            Id = $"urn:jellyfin:opds:favorite:{actualStartIndex}:{actualLimit}",
-            Author = PluginAuthor,
-            Title = GetFeedName("Favorites"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/books/favorite", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
-            Entries = entries
-        };
-
-        ApplyPagination(feed, baseUrl + "/opds/books/favorite", actualStartIndex, actualLimit, totalCount);
-        return feed;
+        return BuildBookFeed(
+            baseUrl,
+            feedIdPrefix: "favorite",
+            feedTitle: "Favorites",
+            selfPath: baseUrl + "/opds/books/favorite",
+            paginationPath: baseUrl + "/opds/books/favorite",
+            userId: userId,
+            query: query,
+            startIndex: startIndex,
+            limit: limit);
     }
 
     /// <inheritdoc />
     public FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart, int? startIndex = null, int? limit = null)
     {
         ArgumentNullException.ThrowIfNull(filterStart);
-
-        var actualStartIndex = NormalizeStartIndex(startIndex);
-        var actualLimit = NormalizeLimit(limit);
 
         if (string.Equals(filterStart, "00", StringComparison.Ordinal))
         {
@@ -726,124 +622,47 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = BookItemTypes,
-            OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
+            OrderBy = [(ItemSortBy.SortName, SortOrder.Ascending)],
             NameStartsWith = filterStart,
-            Recursive = true,
-            DtoOptions = new DtoOptions(),
-            StartIndex = actualStartIndex,
-            Limit = actualLimit
+            Recursive = true
         };
 
-        if (userId != Guid.Empty)
-        {
-            var user = _userManager.GetUserById(userId);
-            if (user is not null)
-            {
-                query.SetUser(user);
-            }
-        }
+        var letter = string.IsNullOrEmpty(filterStart) ? "00" : filterStart;
+        var title = string.IsNullOrEmpty(filterStart) ? "Books" : "Books - " + filterStart;
 
-        var queryResult = _libraryManager.GetItemsResult(query);
-        var entries = new List<EntryDto>();
-        var totalCount = 0;
-        if (queryResult is not null)
-        {
-            totalCount = queryResult.TotalRecordCount;
-            var books = queryResult.Items.OfType<Book>().ToList();
-            var userItemData = GetUserItemData(userId, books);
-            var parentNameCache = new Dictionary<Guid, string>();
-            foreach (var book in books)
-            {
-                entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
-            }
-        }
-
-        var title = string.IsNullOrEmpty(filterStart)
-            ? "Books"
-            : "Books - " + filterStart;
-
-        var feed = new FeedDto
-        {
-            Id = $"urn:jellyfin:opds:books:letter:{(string.IsNullOrEmpty(filterStart) ? "00" : filterStart)}:{actualStartIndex}:{actualLimit}",
-            Author = PluginAuthor,
-            Title = GetFeedName(title),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/books/letter/" + filterStart + "?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
-            Entries = entries
-        };
-
-        var paginationPath = baseUrl + "/opds/books/letter/" + (string.IsNullOrEmpty(filterStart) ? "00" : filterStart);
-        ApplyPagination(feed, paginationPath, actualStartIndex, actualLimit, totalCount);
-        return feed;
+        return BuildBookFeed(
+            baseUrl,
+            feedIdPrefix: $"books:letter:{letter}",
+            feedTitle: title,
+            selfPath: baseUrl + "/opds/books/letter/" + filterStart + "?",
+            paginationPath: baseUrl + "/opds/books/letter/" + letter,
+            userId: userId,
+            query: query,
+            startIndex: startIndex,
+            limit: limit);
     }
 
     /// <inheritdoc />
     public FeedDto GetBooksByGenre(string baseUrl, Guid userId, Guid genreId, int? startIndex = null, int? limit = null)
     {
-        var actualStartIndex = NormalizeStartIndex(startIndex);
-        var actualLimit = NormalizeLimit(limit);
-
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = BookItemTypes,
-            OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) },
-            GenreIds = new[] { genreId },
-            DtoOptions = new DtoOptions(),
-            StartIndex = actualStartIndex,
-            Limit = actualLimit
+            OrderBy = [(ItemSortBy.SortName, SortOrder.Ascending)],
+            GenreIds = [genreId]
         };
-
-        if (userId != Guid.Empty)
-        {
-            var user = _userManager.GetUserById(userId);
-            if (user is not null)
-            {
-                query.SetUser(user);
-            }
-        }
-
-        var queryResult = _libraryManager.GetItemsResult(query);
-        var entries = new List<EntryDto>();
-        var totalCount = 0;
-        if (queryResult is not null)
-        {
-            totalCount = queryResult.TotalRecordCount;
-            var books = queryResult.Items.OfType<Book>().ToList();
-            var userItemData = GetUserItemData(userId, books);
-            var parentNameCache = new Dictionary<Guid, string>();
-            foreach (var book in books)
-            {
-                entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
-            }
-        }
 
         var genre = _libraryManager.GetItemById(genreId);
 
-        var feed = new FeedDto
-        {
-            Id = $"urn:jellyfin:opds:genres:{genreId:N}:{actualStartIndex}:{actualLimit}",
-            Author = PluginAuthor,
-            Title = GetFeedName(genre?.Name ?? "Genre"),
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/genres/" + genreId + "?", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
-            Entries = entries
-        };
-
-        ApplyPagination(feed, baseUrl + "/opds/genres/" + genreId, actualStartIndex, actualLimit, totalCount);
-        return feed;
+        return BuildBookFeed(
+            baseUrl,
+            feedIdPrefix: $"genres:{genreId:N}",
+            feedTitle: genre?.Name ?? "Genre",
+            selfPath: baseUrl + "/opds/genres/" + genreId + "?",
+            paginationPath: baseUrl + "/opds/genres/" + genreId,
+            userId: userId,
+            query: query,
+            startIndex: startIndex,
+            limit: limit);
     }
 
     /// <inheritdoc />
@@ -1015,26 +834,13 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             .OfType<Book>()
             .ToList();
 
-        var entries = new List<EntryDto>(books.Count);
-        var userItemData = GetUserItemData(userId, books);
-        var parentNameCache = new Dictionary<Guid, string>();
-        foreach (var book in books)
-        {
-            entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
-        }
+        var entries = CreateBookEntries(baseUrl, userId, books);
 
         var encodedSearch = Uri.EscapeDataString(searchTerm);
         var feed = new FeedDto
         {
             Id = $"urn:jellyfin:opds:search:{encodedSearch}:{actualStartIndex}:{actualLimit}",
-            Links = new[]
-            {
-                new LinkDto("self", baseUrl + "/opds/search/" + encodedSearch + "?", "application/atom+xml;profile=opds-catalog;kind=navigation"),
-                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;kind=navigation"),
-                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
-                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
-                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
-            },
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + "/opds/search/" + encodedSearch + "?"),
             Title = GetFeedName(searchTerm),
             Author = PluginAuthor,
             Entries = entries
@@ -1182,6 +988,31 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     }
 
     /// <summary>
+    /// Creates feed entry DTOs for a list of books.
+    /// </summary>
+    /// <param name="baseUrl">The base url for links.</param>
+    /// <param name="userId">The user id for user item data.</param>
+    /// <param name="books">The list of books to convert.</param>
+    /// <param name="parentNameCache">An optional dictionary caching parent folder names.</param>
+    /// <returns>A list of created <see cref="EntryDto"/> instances.</returns>
+    private List<EntryDto> CreateBookEntries(
+        string baseUrl,
+        Guid userId,
+        List<Book> books,
+        Dictionary<Guid, string>? parentNameCache = null)
+    {
+        var userItemData = GetUserItemData(userId, books);
+        var cache = parentNameCache ?? new Dictionary<Guid, string>();
+        var entries = new List<EntryDto>(books.Count);
+        foreach (var book in books)
+        {
+            entries.Add(CreateEntry(book, baseUrl, userItemData, cache));
+        }
+
+        return entries;
+    }
+
+    /// <summary>
     /// Gets the user data of the given items in a single batch operation.
     /// </summary>
     /// <param name="userId">The user id.</param>
@@ -1226,6 +1057,95 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     private static int NormalizeStartIndex(int? startIndex)
     {
         return startIndex.HasValue && startIndex.Value > 0 ? startIndex.Value : 0;
+    }
+
+    /// <summary>
+    /// Creates the standard navigation links array (self, start, up, search OSD, and search template).
+    /// </summary>
+    /// <param name="baseUrl">The base url.</param>
+    /// <param name="selfUrl">The self link url.</param>
+    /// <param name="upUrl">The optional up link url; defaults to baseUrl + "/opds".</param>
+    /// <returns>An array of navigation <see cref="LinkDto"/> instances.</returns>
+    private static LinkDto[] CreateStandardNavigationLinks(string baseUrl, string selfUrl, string? upUrl = null)
+    {
+        return
+        [
+            new("self", selfUrl, "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+            new("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+            new("up", upUrl ?? (baseUrl + "/opds"), "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+            new("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
+            new("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
+        ];
+    }
+
+    /// <summary>
+    /// Builds a paginated book feed from an items query.
+    /// </summary>
+    /// <param name="baseUrl">The base url for links.</param>
+    /// <param name="feedIdPrefix">The prefix identifier for the feed URN.</param>
+    /// <param name="feedTitle">The title of the feed.</param>
+    /// <param name="selfPath">The path for the self link.</param>
+    /// <param name="paginationPath">The base path for pagination links.</param>
+    /// <param name="userId">The user id for permissions and user data.</param>
+    /// <param name="query">The items query to execute, or null to return an empty feed.</param>
+    /// <param name="startIndex">The optional start index.</param>
+    /// <param name="limit">The optional page limit.</param>
+    /// <param name="upPath">The optional up link path; defaults to baseUrl + "/opds".</param>
+    /// <returns>The constructed paginated <see cref="FeedDto"/>.</returns>
+    private FeedDto BuildBookFeed(
+        string baseUrl,
+        string feedIdPrefix,
+        string feedTitle,
+        string selfPath,
+        string paginationPath,
+        Guid userId,
+        InternalItemsQuery? query,
+        int? startIndex,
+        int? limit,
+        string? upPath = null)
+    {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
+        var totalCount = 0;
+        List<EntryDto> entries = [];
+
+        if (query is not null)
+        {
+            query.IncludeItemTypes = BookItemTypes;
+            query.DtoOptions = new DtoOptions();
+            query.StartIndex = actualStartIndex;
+            query.Limit = actualLimit;
+
+            if (userId != Guid.Empty)
+            {
+                var user = _userManager.GetUserById(userId);
+                if (user is not null)
+                {
+                    query.SetUser(user);
+                }
+            }
+
+            var queryResult = _libraryManager.GetItemsResult(query);
+            if (queryResult is not null)
+            {
+                totalCount = queryResult.TotalRecordCount;
+                var books = queryResult.Items.OfType<Book>().ToList();
+                entries = CreateBookEntries(baseUrl, userId, books);
+            }
+        }
+
+        var feed = new FeedDto
+        {
+            Id = $"urn:jellyfin:opds:{feedIdPrefix}:{actualStartIndex}:{actualLimit}",
+            Author = PluginAuthor,
+            Title = GetFeedName(feedTitle),
+            Links = CreateStandardNavigationLinks(baseUrl, selfPath, upPath),
+            Entries = entries
+        };
+
+        ApplyPagination(feed, paginationPath, actualStartIndex, actualLimit, totalCount);
+        return feed;
     }
 
     private static void ApplyPagination(
