@@ -432,7 +432,13 @@ public class OpdsApi : ControllerBase
     {
         try
         {
-            await AuthorizeAsync().ConfigureAwait(false);
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            var book = GetAuthorizedBook(bookId, userId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
             var imagePath = _opdsFeedProvider.GetBookImage(bookId);
             if (string.IsNullOrEmpty(imagePath))
             {
@@ -477,7 +483,13 @@ public class OpdsApi : ControllerBase
     {
         try
         {
-            await AuthorizeAsync().ConfigureAwait(false);
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            var book = GetAuthorizedBook(bookId, userId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
             var imagePath = _opdsFeedProvider.GetBookImage(bookId);
             if (string.IsNullOrEmpty(imagePath))
             {
@@ -529,7 +541,13 @@ public class OpdsApi : ControllerBase
     {
         try
         {
-            await AuthorizeAsync().ConfigureAwait(false);
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            var book = GetAuthorizedBook(bookId, userId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
             var bookPath = _opdsFeedProvider.GetBook(bookId);
             if (string.IsNullOrEmpty(bookPath))
             {
@@ -561,9 +579,15 @@ public class OpdsApi : ControllerBase
     {
         try
         {
-            await AuthorizeAsync().ConfigureAwait(false);
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
 
             if (!OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+            {
+                return NotFound();
+            }
+
+            var book = GetAuthorizedBook(bookId, userId);
+            if (book is null)
             {
                 return NotFound();
             }
@@ -743,7 +767,7 @@ public class OpdsApi : ControllerBase
         var username = credentialString[..credentialSplitIndex];
         var password = credentialString[(credentialSplitIndex + 1)..];
 
-        var remoteIp = HttpContext.GetNormalizedRemoteIP().ToString();
+        var remoteIp = HttpContext.GetNormalizedRemoteIP()?.ToString() ?? string.Empty;
         var userId = await _basicAuthCache.GetOrAuthenticateAsync(
             username,
             password,
@@ -865,6 +889,26 @@ public class OpdsApi : ControllerBase
             ContentType = ProgressionConstants.ProblemMediaType,
             StatusCode = statusCode
         };
+    }
+
+    private Book? GetAuthorizedBook(Guid bookId, Guid userId)
+    {
+        var book = _libraryManager.GetItemById<Book>(bookId);
+        if (book is null)
+        {
+            return null;
+        }
+
+        if (userId != Guid.Empty)
+        {
+            var user = _userManager.GetUserById(userId);
+            if (user is null || !book.IsVisibleStandalone(user))
+            {
+                return null;
+            }
+        }
+
+        return book;
     }
 
     private static (int StartIndex, int Limit) ResolvePagination(int? page, int? startIndex, int? limit)

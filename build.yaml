@@ -1,7 +1,7 @@
 name: "OPDS"
 guid: "F30880AE-3365-449E-B9E6-BF133C8401B0"
 imageUrl: "https://repo.jellyfin.org/releases/plugin/images/jellyfin-plugin-opds.png"
-version: "8.1.3.0"
+version: "8.1.4.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 owner: "jellyfin"
@@ -13,6 +13,8 @@ category: "Books"
 artifacts:
   - "Jellyfin.Plugin.Opds.dll"
 changelog: |-
+  - Security: Include remote IP in Basic Auth cache key to prevent cross-IP cache reuse and auth bypass (C-1)
+  - Security: Enforce per-item user visibility authorization checks on download, cover, thumbnail, and stream endpoints (M-7)
   - Fix: Folder view returning empty feed by properly resolving UserView and CollectionFolder hierarchies
   - Add: Hierarchical folder view navigation (/opds/Folders and /opds/Folders/{folderId}) with pagination and rel='up' hierarchy navigation
   - Optimize: Mobile and e-reader browsing performance with OPDS 1.2 pagination, OpenSearch metadata, in-memory Basic Auth caching, fast-path page counting, and cover thumbnail endpoint (/opds/Thumbnail/{bookId})

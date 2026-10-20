@@ -24,10 +24,11 @@ public class BasicAuthCache : IBasicAuthCache
     {
         ArgumentNullException.ThrowIfNull(username);
         ArgumentNullException.ThrowIfNull(password);
+        ArgumentNullException.ThrowIfNull(remoteIp);
         ArgumentNullException.ThrowIfNull(authenticateFunc);
         ArgumentNullException.ThrowIfNull(validateUserFunc);
 
-        var key = ComputeHash(username, password);
+        var key = ComputeHash(username, password, remoteIp);
         var now = DateTime.UtcNow;
 
         if (_cache.TryGetValue(key, out var cached) && cached.ExpirationUtc > now)
@@ -67,9 +68,9 @@ public class BasicAuthCache : IBasicAuthCache
         _cache.Clear();
     }
 
-    private static string ComputeHash(string username, string password)
+    private static string ComputeHash(string username, string password, string remoteIp)
     {
-        var raw = username + "\0" + password;
+        var raw = username + "\0" + password + "\0" + remoteIp;
         var bytes = Encoding.UTF8.GetBytes(raw);
         var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash);

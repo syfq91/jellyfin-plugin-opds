@@ -72,6 +72,28 @@ public class BasicAuthCacheTests
     }
 
     [Fact]
+    public async Task GetOrAuthenticateAsync_Distinguishes_Different_RemoteIps()
+    {
+        var cache = new BasicAuthCache();
+        var expectedUserId = Guid.NewGuid();
+        var callCount = 0;
+
+        Task<Guid?> Authenticate()
+        {
+            callCount++;
+            return Task.FromResult<Guid?>(expectedUserId);
+        }
+
+        var result1 = await cache.GetOrAuthenticateAsync("alice", "secret", "192.168.1.100", Authenticate, _ => true);
+        Assert.Equal(expectedUserId, result1);
+        Assert.Equal(1, callCount);
+
+        var result2 = await cache.GetOrAuthenticateAsync("alice", "secret", "203.0.113.50", Authenticate, _ => true);
+        Assert.Equal(expectedUserId, result2);
+        Assert.Equal(2, callCount);
+    }
+
+    [Fact]
     public async Task Clear_Clears_Cache()
     {
         var cache = new BasicAuthCache();
