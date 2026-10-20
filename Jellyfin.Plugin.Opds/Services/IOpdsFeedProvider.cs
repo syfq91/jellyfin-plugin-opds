@@ -32,6 +32,27 @@ public interface IOpdsFeedProvider
     FeedDto GetBookGenres(string baseUrl, Guid userId);
 
     /// <summary>
+    /// Gets the list of root folders / book libraries.
+    /// </summary>
+    /// <param name="baseUrl">The request path base.</param>
+    /// <param name="userId">The user id to filter by.</param>
+    /// <param name="startIndex">The 0-based start index for pagination.</param>
+    /// <param name="limit">The maximum number of items to return.</param>
+    /// <returns>The root folders feed.</returns>
+    FeedDto GetRootFolders(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+
+    /// <summary>
+    /// Gets the contents of a specific folder.
+    /// </summary>
+    /// <param name="baseUrl">The request path base.</param>
+    /// <param name="userId">The user id to filter by.</param>
+    /// <param name="folderId">The folder id.</param>
+    /// <param name="startIndex">The 0-based start index for pagination.</param>
+    /// <param name="limit">The maximum number of items to return.</param>
+    /// <returns>The folder feed, or null if not found.</returns>
+    FeedDto? GetFolder(string baseUrl, Guid userId, Guid folderId, int? startIndex = null, int? limit = null);
+
+    /// <summary>
     /// Gets the list of recently added books.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>

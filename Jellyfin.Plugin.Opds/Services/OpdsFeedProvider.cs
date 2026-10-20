@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Mime;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Opds.Models;
 using MediaBrowser.Controller;
@@ -115,6 +116,17 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                     Links = new List<LinkDto>
                     {
                         new(baseUrl + "/opds/books/favorite", "application/atom+xml;profile=opds-catalog")
+                    }
+                },
+                new(
+                    "Folders",
+                    "/opds/folders",
+                    new ContentDto("text", "Browse books by folder"),
+                    timestamp)
+                {
+                    Links = new List<LinkDto>
+                    {
+                        new(baseUrl + "/opds/folders", "application/atom+xml;profile=opds-catalog")
                     }
                 },
                 new(
@@ -258,6 +270,268 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
+        return feedDto;
+    }
+
+    /// <inheritdoc />
+    public FeedDto GetRootFolders(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
+    {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+        var user = userId != Guid.Empty ? _userManager.GetUserById(userId) : null;
+
+        var feedDto = new FeedDto
+        {
+            Id = Guid.NewGuid().ToString(),
+            Author = PluginAuthor,
+            Title = GetFeedName("Folders"),
+            Links = new[]
+            {
+                new LinkDto("self", baseUrl + "/opds/folders", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("up", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
+                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
+            },
+            Entries = new List<EntryDto>()
+        };
+
+        IEnumerable<Folder>? topLevelFolders = null;
+        try
+        {
+            topLevelFolders = _libraryManager.GetUserRootFolder()?.GetChildren(user, true)?.OfType<Folder>();
+        }
+        catch (Exception)
+        {
+        }
+
+        if (topLevelFolders is null || !topLevelFolders.Any())
+        {
+            try
+            {
+                topLevelFolders = _libraryManager.RootFolder?.Children?.OfType<Folder>();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        var bookFolders = new List<Folder>();
+        if (topLevelFolders is not null)
+        {
+            foreach (var folder in topLevelFolders)
+            {
+                if (ContainsBooks(folder, user))
+                {
+                    bookFolders.Add(folder);
+                }
+            }
+        }
+
+        if (bookFolders.Count == 0)
+        {
+            var sampleQuery = new InternalItemsQuery
+            {
+                IncludeItemTypes = BookItemTypes,
+                Recursive = true,
+                Limit = 100
+            };
+            if (user is not null)
+            {
+                sampleQuery.SetUser(user);
+            }
+
+            var sampleResult = _libraryManager.GetItemsResult(sampleQuery);
+            if (sampleResult?.Items is not null)
+            {
+                var parentIds = sampleResult.Items.Select(b => b.ParentId).Where(id => id != Guid.Empty).Distinct();
+                foreach (var pId in parentIds)
+                {
+                    if (_libraryManager.GetItemById(pId) is Folder pFolder && !bookFolders.Any(f => f.Id == pFolder.Id))
+                    {
+                        bookFolders.Add(pFolder);
+                    }
+                }
+            }
+        }
+
+        bookFolders = bookFolders.OrderBy(f => f.SortName ?? f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var totalCount = bookFolders.Count;
+        var pagedFolders = bookFolders.Skip(actualStartIndex).Take(actualLimit).ToList();
+
+        foreach (var folder in pagedFolders)
+        {
+            var entry = new EntryDto(
+                folder.Name,
+                "/opds/folders/" + folder.Id,
+                folder.DateModified != default ? folder.DateModified : DateTime.UtcNow)
+            {
+                Summary = folder.Overview,
+                Links = new List<LinkDto>
+                {
+                    new(
+                        "subsection",
+                        baseUrl + "/opds/folders/" + folder.Id,
+                        "application/atom+xml;profile=opds-catalog")
+                }
+            };
+
+            if (!string.IsNullOrEmpty(folder.PrimaryImagePath))
+            {
+                var mime = MimeTypes.GetMimeType(folder.PrimaryImagePath);
+                if (!string.IsNullOrEmpty(mime))
+                {
+                    entry.Links.Add(new("http://opds-spec.org/image", baseUrl + "/opds/cover/" + folder.Id, mime));
+                    entry.Links.Add(new("http://opds-spec.org/image/thumbnail", baseUrl + "/opds/thumbnail/" + folder.Id, "image/jpeg"));
+                }
+            }
+
+            feedDto.Entries.Add(entry);
+        }
+
+        ApplyPagination(feedDto, baseUrl + "/opds/folders", actualStartIndex, actualLimit, totalCount);
+        return feedDto;
+    }
+
+    /// <inheritdoc />
+    public FeedDto? GetFolder(string baseUrl, Guid userId, Guid folderId, int? startIndex = null, int? limit = null)
+    {
+        var folder = _libraryManager.GetItemById(folderId) as Folder;
+        if (folder is null)
+        {
+            return null;
+        }
+
+        var user = userId != Guid.Empty ? _userManager.GetUserById(userId) : null;
+        if (user is not null && !folder.IsVisibleStandalone(user))
+        {
+            return null;
+        }
+
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
+        string upLinkUrl;
+        if (folder.ParentId != Guid.Empty)
+        {
+            var parent = _libraryManager.GetItemById(folder.ParentId) as Folder;
+            if (parent is not null && parent is not UserRootFolder && parent.Id != _libraryManager.RootFolder?.Id)
+            {
+                upLinkUrl = baseUrl + "/opds/folders/" + parent.Id;
+            }
+            else
+            {
+                upLinkUrl = baseUrl + "/opds/folders";
+            }
+        }
+        else
+        {
+            upLinkUrl = baseUrl + "/opds/folders";
+        }
+
+        var feedDto = new FeedDto
+        {
+            Id = Guid.NewGuid().ToString(),
+            Author = PluginAuthor,
+            Title = GetFeedName(folder.Name),
+            Links = new[]
+            {
+                new LinkDto("self", baseUrl + "/opds/folders/" + folderId, "application/atom+xml;profile=opds-catalog"),
+                new LinkDto("start", baseUrl + "/opds", "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("up", upLinkUrl, "application/atom+xml;profile=opds-catalog;type=feed;kind=navigation"),
+                new LinkDto("search", baseUrl + "/opds/osd", "application/opensearchdescription+xml"),
+                new LinkDto("search", baseUrl + "/opds/search/{searchTerms}", "application/atom+xml", "Search")
+            },
+            Entries = new List<EntryDto>()
+        };
+
+        var query = new InternalItemsQuery
+        {
+            ParentId = folderId,
+            Recursive = false,
+            DtoOptions = new DtoOptions(),
+            OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) }
+        };
+
+        if (user is not null)
+        {
+            query.SetUser(user);
+        }
+
+        var queryResult = _libraryManager.GetItemsResult(query);
+        var subfolders = new List<Folder>();
+        var books = new List<Book>();
+
+        if (queryResult?.Items is not null)
+        {
+            foreach (var item in queryResult.Items)
+            {
+                if (item is Book book)
+                {
+                    books.Add(book);
+                }
+                else if (item is Folder subFolder && ContainsBooks(subFolder, user))
+                {
+                    subfolders.Add(subFolder);
+                }
+            }
+        }
+
+        subfolders = subfolders.OrderBy(f => f.SortName ?? f.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        books = books.OrderBy(b => b.SortName ?? b.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var allItems = new List<BaseItem>(subfolders.Count + books.Count);
+        allItems.AddRange(subfolders);
+        allItems.AddRange(books);
+
+        var totalCount = allItems.Count;
+        var pagedItems = allItems.Skip(actualStartIndex).Take(actualLimit).ToList();
+
+        var pagedBooks = pagedItems.OfType<Book>().ToList();
+        var userItemData = GetUserItemData(userId, pagedBooks);
+        var parentNameCache = new Dictionary<Guid, string>
+        {
+            [folder.Id] = folder.Name
+        };
+
+        foreach (var item in pagedItems)
+        {
+            if (item is Folder subFolder)
+            {
+                var entry = new EntryDto(
+                    subFolder.Name,
+                    "/opds/folders/" + subFolder.Id,
+                    subFolder.DateModified != default ? subFolder.DateModified : DateTime.UtcNow)
+                {
+                    Summary = subFolder.Overview,
+                    Links = new List<LinkDto>
+                    {
+                        new(
+                            "subsection",
+                            baseUrl + "/opds/folders/" + subFolder.Id,
+                            "application/atom+xml;profile=opds-catalog")
+                    }
+                };
+
+                if (!string.IsNullOrEmpty(subFolder.PrimaryImagePath))
+                {
+                    var mime = MimeTypes.GetMimeType(subFolder.PrimaryImagePath);
+                    if (!string.IsNullOrEmpty(mime))
+                    {
+                        entry.Links.Add(new("http://opds-spec.org/image", baseUrl + "/opds/cover/" + subFolder.Id, mime));
+                        entry.Links.Add(new("http://opds-spec.org/image/thumbnail", baseUrl + "/opds/thumbnail/" + subFolder.Id, "image/jpeg"));
+                    }
+                }
+
+                feedDto.Entries.Add(entry);
+            }
+            else if (item is Book book)
+            {
+                feedDto.Entries.Add(CreateEntry(book, baseUrl, userItemData, parentNameCache));
+            }
+        }
+
+        ApplyPagination(feedDto, baseUrl + "/opds/folders/" + folderId, actualStartIndex, actualLimit, totalCount);
         return feedDto;
     }
 
@@ -893,5 +1167,30 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var cleanUrl = baseUrlPath.TrimEnd('?');
         var separator = cleanUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
         return $"{cleanUrl}{separator}startIndex={startIndex}&limit={limit}";
+    }
+
+    private bool ContainsBooks(Folder folder, User? user)
+    {
+        if (folder is IHasCollectionType hasCollectionType
+            && hasCollectionType.CollectionType == CollectionType.books)
+        {
+            return true;
+        }
+
+        var query = new InternalItemsQuery
+        {
+            ParentId = folder.Id,
+            IncludeItemTypes = BookItemTypes,
+            Recursive = true,
+            Limit = 1
+        };
+
+        if (user is not null)
+        {
+            query.SetUser(user);
+        }
+
+        var result = _libraryManager.GetItemsResult(query);
+        return result is not null && (result.TotalRecordCount > 0 || (result.Items is not null && result.Items.Count > 0));
     }
 }

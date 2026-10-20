@@ -241,6 +241,70 @@ public class OpdsApi : ControllerBase
     }
 
     /// <summary>
+    /// Gets the list of root folders / book libraries.
+    /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The folders feed xml.</returns>
+    [HttpGet("Folders")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> GetFolders(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feeds = _opdsFeedProvider.GetRootFolders(Request.PathBase, userId, start, lim);
+            return BuildOutput(feeds);
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Gets the contents of a specific folder.
+    /// </summary>
+    /// <param name="folderId">The folder id.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The folder feed xml.</returns>
+    [HttpGet("Folders/{folderId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> GetFolder(
+        [FromRoute] Guid folderId,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feed = _opdsFeedProvider.GetFolder(Request.PathBase, userId, folderId, start, lim);
+            if (feed is null)
+            {
+                return NotFound();
+            }
+
+            return BuildOutput(feed);
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
     /// Gets the search result.
     /// </summary>
     /// <param name="searchTerms">The search terms.</param>

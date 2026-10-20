@@ -270,6 +270,97 @@ public class OpdsFeedProviderTests : IDisposable
         _pageStreamService.Verify(x => x.GetPageCount(It.IsAny<Book>()), Times.Never);
     }
 
+    [Fact]
+    public void Root_Feed_Includes_Folders_Entry()
+    {
+        var feed = _provider.GetFeeds("/base");
+        var folderEntry = feed.Entries?.FirstOrDefault(e => e.Title == "Folders");
+        Assert.NotNull(folderEntry);
+        Assert.Equal("/opds/folders", folderEntry.Id);
+        var link = folderEntry.Links?.FirstOrDefault();
+        Assert.NotNull(link);
+        Assert.Equal("/base/opds/folders", link.Href);
+    }
+
+    [Fact]
+    public void GetRootFolders_Returns_Folders_Containing_Books()
+    {
+        var folderId = Guid.NewGuid();
+        var folder = new Folder { Id = folderId, Name = "Comics" };
+
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.Recursive && q.Limit == 1)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.Recursive && q.Limit == 100)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+        _libraryManager.Setup(x => x.GetItemById(folderId)).Returns(folder);
+        _book.ParentId = folderId;
+
+        var feed = _provider.GetRootFolders("/base", _userId);
+
+        Assert.NotNull(feed);
+        var entry = feed.Entries?.FirstOrDefault(e => e.Title == "Comics");
+        Assert.NotNull(entry);
+        Assert.Equal($"/base/opds/folders/{folderId}", entry.Links?.FirstOrDefault()?.Href);
+    }
+
+    [Fact]
+    public void GetFolder_Returns_Subfolders_And_Books()
+    {
+        var rootFolderId = Guid.NewGuid();
+        var rootFolder = new Folder { Id = rootFolderId, Name = "Comics Library" };
+
+        var subFolderId = Guid.NewGuid();
+        var subFolder = new Folder { Id = subFolderId, Name = "Batman", ParentId = rootFolderId };
+
+        var bookItem = new Book
+        {
+            Id = Guid.NewGuid(),
+            Name = "Batman Year One",
+            ParentId = rootFolderId,
+            Path = Path.Combine(_directory, "batman.cbz")
+        };
+
+        _libraryManager.Setup(x => x.GetItemById(rootFolderId)).Returns(rootFolder);
+        _libraryManager.Setup(x => x.GetItemById(subFolderId)).Returns(subFolder);
+
+        // Subfolder check ContainsBooks:
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == subFolderId && q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { bookItem }, TotalRecordCount = 1 });
+
+        // Direct children query:
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == rootFolderId && !q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { subFolder, bookItem }, TotalRecordCount = 2 });
+
+        var feed = _provider.GetFolder("/base", _userId, rootFolderId);
+
+        Assert.NotNull(feed);
+        Assert.Equal(2, feed.Entries?.Count);
+
+        var subFolderEntry = feed.Entries?.FirstOrDefault(e => e.Title == "Batman");
+        var bookEntry = feed.Entries?.FirstOrDefault(e => e.Title == "Batman Year One");
+
+        Assert.NotNull(subFolderEntry);
+        Assert.NotNull(bookEntry);
+
+        Assert.Equal($"/base/opds/folders/{subFolderId}", subFolderEntry.Links?.FirstOrDefault(l => l.Rel == "subsection")?.Href);
+        Assert.NotNull(bookEntry.Links?.FirstOrDefault(l => l.Rel == "http://opds-spec.org/acquisition"));
+
+        // Verify "up" link points to root folders
+        var upLink = feed.Links?.FirstOrDefault(l => l.Rel == "up");
+        Assert.NotNull(upLink);
+        Assert.Equal("/base/opds/folders", upLink.Href);
+    }
+
+    [Fact]
+    public void GetFolder_Returns_Null_When_Folder_NotFound()
+    {
+        var nonExistentId = Guid.NewGuid();
+        _libraryManager.Setup(x => x.GetItemById(nonExistentId)).Returns((BaseItem?)null);
+
+        var feed = _provider.GetFolder("/base", _userId, nonExistentId);
+        Assert.Null(feed);
+    }
+
     private static XElement? GetStreamLink(FeedDto feed)
     {
         var xml = Serialize(feed);
