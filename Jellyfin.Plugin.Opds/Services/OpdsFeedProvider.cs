@@ -319,9 +319,10 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         var bookFolders = new List<Folder>();
         if (topLevelFolders is not null)
         {
-            foreach (var folder in topLevelFolders)
+            foreach (var topFolder in topLevelFolders)
             {
-                if (ContainsBooks(folder, user))
+                var folder = ResolveCollectionFolder(topFolder);
+                if (ContainsBooks(folder, user) && !bookFolders.Any(f => f.Id == folder.Id))
                 {
                     bookFolders.Add(folder);
                 }
@@ -408,6 +409,8 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             return null;
         }
 
+        folder = ResolveCollectionFolder(folder);
+
         var actualStartIndex = NormalizeStartIndex(startIndex);
         var actualLimit = NormalizeLimit(limit);
 
@@ -445,35 +448,57 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             Entries = new List<EntryDto>()
         };
 
-        var query = new InternalItemsQuery
+        var items = new List<BaseItem>();
+        try
         {
-            ParentId = folderId,
-            Recursive = false,
-            DtoOptions = new DtoOptions(),
-            OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) }
-        };
+            var children = user is not null
+                ? folder.GetChildren(user, true)
+                : folder.Children;
 
-        if (user is not null)
+            if (children is not null)
+            {
+                items.AddRange(children);
+            }
+        }
+        catch (Exception)
         {
-            query.SetUser(user);
         }
 
-        var queryResult = _libraryManager.GetItemsResult(query);
+        if (items.Count == 0)
+        {
+            var query = new InternalItemsQuery
+            {
+                Parent = folder,
+                ParentId = folder.Id,
+                Recursive = false,
+                DtoOptions = new DtoOptions(),
+                OrderBy = new (ItemSortBy, SortOrder)[] { (ItemSortBy.SortName, SortOrder.Ascending) }
+            };
+
+            if (user is not null)
+            {
+                query.SetUser(user);
+            }
+
+            var queryResult = _libraryManager.GetItemsResult(query);
+            if (queryResult?.Items is not null)
+            {
+                items.AddRange(queryResult.Items);
+            }
+        }
+
         var subfolders = new List<Folder>();
         var books = new List<Book>();
 
-        if (queryResult?.Items is not null)
+        foreach (var item in items.DistinctBy(i => i.Id))
         {
-            foreach (var item in queryResult.Items)
+            if (item is Book book)
             {
-                if (item is Book book)
-                {
-                    books.Add(book);
-                }
-                else if (item is Folder subFolder && ContainsBooks(subFolder, user))
-                {
-                    subfolders.Add(subFolder);
-                }
+                books.Add(book);
+            }
+            else if (item is Folder subFolder && ContainsBooks(subFolder, user))
+            {
+                subfolders.Add(subFolder);
             }
         }
 
@@ -1169,16 +1194,57 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         return $"{cleanUrl}{separator}startIndex={startIndex}&limit={limit}";
     }
 
+    private Folder ResolveCollectionFolder(Folder folder)
+    {
+        if (folder is UserView userView)
+        {
+            var target = (userView.DisplayParentId != Guid.Empty ? _libraryManager.GetItemById(userView.DisplayParentId) as Folder : null)
+                ?? (userView.ParentId != Guid.Empty ? _libraryManager.GetItemById(userView.ParentId) as Folder : null);
+
+            if (target is not null)
+            {
+                return target;
+            }
+        }
+
+        return folder;
+    }
+
     private bool ContainsBooks(Folder folder, User? user)
     {
+        return ContainsBooks(folder, user, new HashSet<Guid>());
+    }
+
+    private bool ContainsBooks(Folder folder, User? user, HashSet<Guid> visited)
+    {
+        if (!visited.Add(folder.Id))
+        {
+            return false;
+        }
+
+        folder = ResolveCollectionFolder(folder);
+
         if (folder is IHasCollectionType hasCollectionType
             && hasCollectionType.CollectionType == CollectionType.books)
         {
             return true;
         }
 
+        try
+        {
+            var children = user is not null ? folder.GetChildren(user, true) : folder.Children;
+            if (children is not null && children.Any(c => c is Book || (c is Folder f && ContainsBooks(f, user, visited))))
+            {
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
         var query = new InternalItemsQuery
         {
+            Parent = folder,
             ParentId = folder.Id,
             IncludeItemTypes = BookItemTypes,
             Recursive = true,

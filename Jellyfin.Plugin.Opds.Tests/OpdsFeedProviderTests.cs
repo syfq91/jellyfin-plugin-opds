@@ -361,6 +361,129 @@ public class OpdsFeedProviderTests : IDisposable
         Assert.Null(feed);
     }
 
+    [Fact]
+    public void GetFolder_Resolves_UserView_To_CollectionFolder()
+    {
+        var collFolderId = Guid.NewGuid();
+        var collFolder = new CollectionFolder { Id = collFolderId, Name = "Books Collection" };
+
+        var userViewId = Guid.NewGuid();
+        var userView = new UserView
+        {
+            Id = userViewId,
+            Name = "Books",
+            DisplayParentId = collFolderId
+        };
+
+        var bookItem = new Book
+        {
+            Id = Guid.NewGuid(),
+            Name = "Dune",
+            ParentId = collFolderId,
+            Path = Path.Combine(_directory, "dune.epub")
+        };
+
+        _libraryManager.Setup(x => x.GetItemById(userViewId)).Returns(userView);
+        _libraryManager.Setup(x => x.GetItemById(collFolderId)).Returns(collFolder);
+
+        // Fallback query under collection folder:
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == collFolderId && !q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { bookItem }, TotalRecordCount = 1 });
+
+        var feed = _provider.GetFolder("/base", _userId, userViewId);
+
+        Assert.NotNull(feed);
+        Assert.Equal("Books Collection - TestServer", feed.Title);
+        var entry = feed.Entries?.FirstOrDefault(e => e.Title == "Dune");
+        Assert.NotNull(entry);
+    }
+
+    [Fact]
+    public void GetFolder_Uses_Direct_Children_When_Available()
+    {
+        var rootFolderId = Guid.NewGuid();
+        var subFolderId = Guid.NewGuid();
+        var subFolder = new Folder { Id = subFolderId, Name = "SciFi", ParentId = rootFolderId };
+
+        var bookItem = new Book
+        {
+            Id = Guid.NewGuid(),
+            Name = "Hyperion",
+            ParentId = rootFolderId,
+            Path = Path.Combine(_directory, "hyperion.epub")
+        };
+
+        var testFolder = new TestFolder(new BaseItem[] { subFolder, bookItem })
+        {
+            Id = rootFolderId,
+            Name = "My Library"
+        };
+
+        _libraryManager.Setup(x => x.GetItemById(rootFolderId)).Returns(testFolder);
+        _libraryManager.Setup(x => x.GetItemById(subFolderId)).Returns(subFolder);
+
+        // Subfolder check ContainsBooks:
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == subFolderId && q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { bookItem }, TotalRecordCount = 1 });
+
+        var feed = _provider.GetFolder("/base", _userId, rootFolderId);
+
+        Assert.NotNull(feed);
+        Assert.Equal(2, feed.Entries?.Count);
+        Assert.Contains(feed.Entries!, e => e.Title == "SciFi");
+        Assert.Contains(feed.Entries!, e => e.Title == "Hyperion");
+    }
+
+    [Fact]
+    public void GetRootFolders_Resolves_UserViews_To_CollectionFolders()
+    {
+        var collFolderId = Guid.NewGuid();
+        var collFolder = new CollectionFolder { Id = collFolderId, Name = "Audiobooks Library" };
+
+        var userViewId = Guid.NewGuid();
+        var userView = new UserView
+        {
+            Id = userViewId,
+            Name = "Audiobooks",
+            DisplayParentId = collFolderId
+        };
+
+        var userRoot = new Mock<Folder>();
+        userRoot.Setup(r => r.GetChildren(It.IsAny<User>(), true, It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { userView });
+
+        _libraryManager.Setup(x => x.GetUserRootFolder()).Returns(userRoot.Object);
+        _libraryManager.Setup(x => x.GetItemById(collFolderId)).Returns(collFolder);
+        _libraryManager.Setup(x => x.GetItemById(userViewId)).Returns(userView);
+
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == collFolderId && q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _book }, TotalRecordCount = 1 });
+
+        var feed = _provider.GetRootFolders("/base", _userId);
+
+        Assert.NotNull(feed);
+        var entry = feed.Entries?.FirstOrDefault(e => e.Title == "Audiobooks Library");
+        Assert.NotNull(entry);
+        Assert.Equal($"/base/opds/folders/{collFolderId}", entry.Links?.FirstOrDefault()?.Href);
+    }
+
+    private sealed class TestFolder : Folder
+    {
+        private readonly List<BaseItem> _mockChildren;
+
+        public TestFolder(IEnumerable<BaseItem> children)
+        {
+            _mockChildren = children.ToList();
+        }
+
+        public override IEnumerable<BaseItem> Children => _mockChildren;
+
+        public override IReadOnlyList<BaseItem> GetChildren(User user, bool includeLinkedChildren, InternalItemsQuery? query = null)
+        {
+            return _mockChildren;
+        }
+    }
+
     private static XElement? GetStreamLink(FeedDto feed)
     {
         var xml = Serialize(feed);
