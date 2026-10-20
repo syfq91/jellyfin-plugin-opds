@@ -18,6 +18,7 @@ using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Opds.Services;
 
@@ -40,6 +41,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     private readonly IUserDataManager _userDataManager;
     private readonly IImageEncoder? _imageEncoder;
     private readonly IApplicationPaths? _applicationPaths;
+    private readonly ILogger<OpdsFeedProvider>? _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsFeedProvider"/> class.
@@ -52,6 +54,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
     /// <param name="imageEncoder">Optional instance of the <see cref="IImageEncoder"/> interface.</param>
     /// <param name="applicationPaths">Optional instance of the <see cref="IApplicationPaths"/> interface.</param>
+    /// <param name="logger">Optional instance of the <see cref="ILogger{OpdsFeedProvider}"/> interface.</param>
     public OpdsFeedProvider(
         ILibraryManager libraryManager,
         ISearchManager searchManager,
@@ -60,7 +63,8 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         IPageStreamService pageStreamService,
         IUserDataManager userDataManager,
         IImageEncoder? imageEncoder = null,
-        IApplicationPaths? applicationPaths = null)
+        IApplicationPaths? applicationPaths = null,
+        ILogger<OpdsFeedProvider>? logger = null)
     {
         _libraryManager = libraryManager;
         _searchManager = searchManager;
@@ -70,6 +74,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         _userDataManager = userDataManager;
         _imageEncoder = imageEncoder;
         _applicationPaths = applicationPaths;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -85,7 +90,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         };
 
         // The authentication document is only advertised when it is required.
-        if (!OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess)
+        if (!(OpdsPlugin.Instance?.Configuration.AllowAnonymousAccess ?? false))
         {
             links.Add(new LinkDto(
                 AuthenticationConstants.Rel,
@@ -306,8 +311,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         {
             topLevelFolders = _libraryManager.GetUserRootFolder()?.GetChildren(user, true)?.OfType<Folder>();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger?.LogWarning(ex, "Unable to enumerate user top-level folders");
         }
 
         if (topLevelFolders is null || !topLevelFolders.Any())
@@ -316,8 +322,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             {
                 topLevelFolders = _libraryManager.RootFolder?.Children?.OfType<Folder>();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger?.LogWarning(ex, "Unable to enumerate root top-level folders");
             }
         }
 
@@ -408,10 +415,21 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             return null;
         }
 
-        var user = userId != Guid.Empty ? _userManager.GetUserById(userId) : null;
-        if (user is not null && !folder.IsVisibleStandalone(user))
+        User? user = null;
+        if (userId != Guid.Empty)
         {
-            return null;
+            user = _userManager.GetUserById(userId);
+            if (user is null || !folder.IsVisibleStandalone(user))
+            {
+                return null;
+            }
+        }
+        else
+        {
+            if (!ContainsBooks(folder, null))
+            {
+                return null;
+            }
         }
 
         folder = ResolveCollectionFolder(folder);
@@ -961,8 +979,9 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger?.LogWarning(ex, "Unable to generate thumbnail for book {BookId}", bookId);
             return null;
         }
     }
@@ -1111,7 +1130,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
             }
         }
 
-        if (OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+        if (OpdsPlugin.Instance?.Configuration.EnablePageStreaming ?? false)
         {
             var totalTicks = book.RunTimeTicks.GetValueOrDefault();
             var pageCount = totalTicks > 10000
@@ -1142,7 +1161,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
 
         // The progression service covers every book, including the formats
         // that cannot be streamed page by page, e.g. EPUB.
-        if (OpdsPlugin.Instance!.Configuration.EnableProgression)
+        if (OpdsPlugin.Instance?.Configuration.EnableProgression ?? false)
         {
             entry.Links.Add(new LinkDto(
                 ProgressionConstants.Rel,
@@ -1165,7 +1184,7 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         // streaming extension, so don't query it when that is not exposed.
         if (userId == Guid.Empty
             || items.Count == 0
-            || !OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+            || !(OpdsPlugin.Instance?.Configuration.EnablePageStreaming ?? false))
         {
             return EmptyUserItemData;
         }

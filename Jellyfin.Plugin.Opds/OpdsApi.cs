@@ -581,7 +581,7 @@ public class OpdsApi : ControllerBase
         {
             var userId = await AuthorizeAsync().ConfigureAwait(false);
 
-            if (!OpdsPlugin.Instance!.Configuration.EnablePageStreaming)
+            if (!(OpdsPlugin.Instance?.Configuration.EnablePageStreaming ?? false))
             {
                 return NotFound();
             }
@@ -727,7 +727,7 @@ public class OpdsApi : ControllerBase
 
     private async Task<Guid> AuthorizeAsync()
     {
-        var allowAnonymous = OpdsPlugin.Instance!.Configuration.AllowAnonymousAccess;
+        var allowAnonymous = OpdsPlugin.Instance?.Configuration.AllowAnonymousAccess ?? false;
 
         Request.Headers.TryGetValue(HeaderNames.Authorization, out var authorizationHeader);
         if (string.IsNullOrEmpty(authorizationHeader) || authorizationHeader.Count == 0)

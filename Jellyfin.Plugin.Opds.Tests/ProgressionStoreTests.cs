@@ -140,6 +140,24 @@ public class ProgressionStoreTests : IDisposable
         Assert.Null(new ProgressionStore(_filePath, maxEntries: 3).Get(_userId, firstBookId));
     }
 
+    [Fact]
+    public void Evicts_Oldest_Entry_By_Modified_Date_Regardless_Of_Insertion_Order()
+    {
+        var store = new ProgressionStore(_filePath, maxEntries: 2);
+        var middleBookId = Guid.NewGuid();
+        var oldestBookId = Guid.NewGuid();
+        var newestBookId = Guid.NewGuid();
+
+        store.Save(_userId, middleBookId, CreateEntry(Modified.AddDays(1), 100000));
+        store.Save(_userId, oldestBookId, CreateEntry(Modified, 100000));
+        store.Save(_userId, newestBookId, CreateEntry(Modified.AddDays(2), 100000));
+
+        // oldestBookId had the lowest Modified date, so it should be evicted even though it was inserted 2nd
+        Assert.Null(store.Get(_userId, oldestBookId));
+        Assert.NotNull(store.Get(_userId, middleBookId));
+        Assert.NotNull(store.Get(_userId, newestBookId));
+    }
+
     private static ProgressionStoreEntry CreateEntry(DateTime modified, long positionTicks)
     {
         return new ProgressionStoreEntry

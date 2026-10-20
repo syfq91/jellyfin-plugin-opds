@@ -1,7 +1,7 @@
 name: "OPDS"
 guid: "F30880AE-3365-449E-B9E6-BF133C8401B0"
 imageUrl: "https://repo.jellyfin.org/releases/plugin/images/jellyfin-plugin-opds.png"
-version: "8.1.5.0"
+version: "8.1.6.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 owner: "jellyfin"
@@ -13,6 +13,10 @@ category: "Books"
 artifacts:
   - "Jellyfin.Plugin.Opds.dll"
 changelog: |-
+  - Security: Restrict anonymous folder browsing to books collections and folders containing books (M-6)
+  - Reliability: Remove null-forgiving OpdsPlugin.Instance dereferences with safe fallback handling (H-2)
+  - Performance: Optimize ProgressionStore cache eviction from O(n log n) to O(n) using MinBy (H-5)
+  - Reliability: Add warning logging when top-level folder enumeration or thumbnail generation fails (M-3, M-4)
   - Security: Include book ID in thumbnail cache key and store thumbnails under server cache directory, avoiding collisions and symlink attack surface (H-4)
   - Security: Add 100 MB extraction size limit on archive pages to prevent zip decompression bombs (M-5)
   - Fix: URL-encode search terms in search feed self-links and pagination (H-1)

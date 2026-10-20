@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.Opds.Configuration;
 using Jellyfin.Plugin.Opds.Models;
 using Jellyfin.Plugin.Opds.Services;
@@ -18,6 +20,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -594,6 +597,7 @@ public class OpdsFeedProviderTests : IDisposable
                 throw new InvalidOperationException("Encoder crashed");
             });
 
+        var logger = new Mock<ILogger<OpdsFeedProvider>>();
         var provider = new OpdsFeedProvider(
             _libraryManager.Object,
             Mock.Of<ISearchManager>(),
@@ -602,17 +606,91 @@ public class OpdsFeedProviderTests : IDisposable
             _pageStreamService.Object,
             Mock.Of<IUserDataManager>(),
             imageEncoder.Object,
-            appPaths.Object);
+            appPaths.Object,
+            logger.Object);
 
         var thumbnail = provider.GetBookThumbnail(_book.Id, 240);
 
         Assert.Null(thumbnail);
+        logger.Verify(
+            x => x.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => true),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception?, string>>((v, t) => true)),
+            Times.Once);
+
         var expectedThumbDir = Path.Combine(cacheDir, "opds-thumbnails");
         if (Directory.Exists(expectedThumbDir))
         {
             var tempFiles = Directory.GetFiles(expectedThumbDir, "*.tmp");
             Assert.Empty(tempFiles);
         }
+    }
+
+    [Fact]
+    public void GetFolder_AnonymousUser_Returns_Null_When_Folder_Does_Not_Contain_Books()
+    {
+        var moviesFolderId = Guid.NewGuid();
+        var moviesFolder = new Folder { Id = moviesFolderId, Name = "Movies" };
+        _libraryManager.Setup(x => x.GetItemById(moviesFolderId)).Returns(moviesFolder);
+        _libraryManager.Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.ParentId == moviesFolderId && q.Recursive)))
+            .Returns(new QueryResult<BaseItem> { Items = Array.Empty<BaseItem>(), TotalRecordCount = 0 });
+
+        var feed = _provider.GetFolder("/base", Guid.Empty, moviesFolderId);
+
+        Assert.Null(feed);
+    }
+
+    [Fact]
+    public void GetFolder_AnonymousUser_Returns_Feed_When_Folder_Is_Books_Collection()
+    {
+        var booksFolderId = Guid.NewGuid();
+        var booksFolder = new CollectionFolder
+        {
+            Id = booksFolderId,
+            Name = "Books",
+            CollectionType = CollectionType.books
+        };
+        _libraryManager.Setup(x => x.GetItemById(booksFolderId)).Returns(booksFolder);
+
+        var feed = _provider.GetFolder("/base", Guid.Empty, booksFolderId);
+
+        Assert.NotNull(feed);
+        Assert.Equal("Books - TestServer", feed.Title);
+    }
+
+    [Fact]
+    public void GetRootFolders_LogsWarning_When_Exception_Thrown()
+    {
+        var logger = new Mock<ILogger<OpdsFeedProvider>>();
+        var failingLibraryManager = new Mock<ILibraryManager>();
+        failingLibraryManager.Setup(x => x.GetUserRootFolder()).Throws(new InvalidOperationException("DB disk error"));
+
+        var appHost = new Mock<MediaBrowser.Controller.IServerApplicationHost>();
+        appHost.SetupGet(x => x.FriendlyName).Returns("TestServer");
+
+        var provider = new OpdsFeedProvider(
+            failingLibraryManager.Object,
+            Mock.Of<ISearchManager>(),
+            appHost.Object,
+            Mock.Of<IUserManager>(),
+            _pageStreamService.Object,
+            Mock.Of<IUserDataManager>(),
+            logger: logger.Object);
+
+        var feed = provider.GetRootFolders("/base", _userId);
+
+        Assert.NotNull(feed);
+        logger.Verify(
+            x => x.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => true),
+                It.IsAny<Exception>(),
+                It.Is<Func<It.IsAnyType, Exception?, string>>((v, t) => true)),
+            Times.AtLeastOnce);
     }
 
     private sealed class TestFolder : Folder

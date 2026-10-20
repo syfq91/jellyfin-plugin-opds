@@ -94,7 +94,7 @@ public sealed class ProgressionStore : IProgressionStore
 
     private static void EvictOldest(Dictionary<string, ProgressionStoreEntry> entries)
     {
-        var oldest = entries.OrderBy(entry => entry.Value.Modified).FirstOrDefault();
+        var oldest = entries.MinBy(entry => entry.Value.Modified);
         if (oldest.Key is not null)
         {
             entries.Remove(oldest.Key);

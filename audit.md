@@ -239,6 +239,7 @@ ApplyPagination(feed, baseUrl + "/opds/search/" + encodedSearch, ...)
 |-------|-------|
 | **Severity** | 🟠 High |
 | **Category** | Bug |
+| **Status** | ✅ Resolved |
 | **File** | Multiple files |
 | **Lines** | See list below |
 
@@ -438,6 +439,7 @@ The subsequent `File.ReadAllBytes(cachePath)` will follow the symlink and read a
 |-------|-------|
 | **Severity** | 🟠 High |
 | **Category** | Performance |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/ProgressionStore.cs` |
 | **Lines** | 95–102 |
 
@@ -583,6 +585,7 @@ Provide a combined method that opens the archive once, validates the page list, 
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 300–316 |
 
@@ -628,6 +631,7 @@ This requires adding an `ILogger<OpdsFeedProvider>` dependency to the class (whi
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Quality |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 880–882 |
 
@@ -723,6 +727,7 @@ imageBytes = buffer.ToArray();
 |-------|-------|
 | **Severity** | 🟡 Medium |
 | **Category** | Security |
+| **Status** | ✅ Resolved |
 | **File** | `Jellyfin.Plugin.Opds/Services/OpdsFeedProvider.cs` |
 | **Lines** | 397–409 |
 
@@ -1073,11 +1078,11 @@ The codebase demonstrates several good practices worth acknowledging:
 | H-4 | 🟠 High | Security | Low (add bookId to key) | **P1** | ✅ Resolved |
 | H-3 | 🟠 High | Bug | Low (add try/finally) | **P1** | ✅ Resolved |
 | M-5 | 🟡 Medium | Security | Low (add size check) | **P1** | ✅ Resolved |
-| H-2 | 🟠 High | Bug | Medium (12+ call sites) | **P2** | Open |
-| H-5 | 🟠 High | Performance | Low (use MinBy) | **P2** | Open |
-| M-3 | 🟡 Medium | Quality | Low (add logging) | **P2** | Open |
-| M-4 | 🟡 Medium | Quality | Low (add logging) | **P2** | Open |
-| M-6 | 🟡 Medium | Security | Medium (design decision) | **P2** | Open |
+| H-2 | 🟠 High | Bug | Medium (12+ call sites) | **P2** | ✅ Resolved |
+| H-5 | 🟠 High | Performance | Low (use MinBy) | **P2** | ✅ Resolved |
+| M-3 | 🟡 Medium | Quality | Low (add logging) | **P2** | ✅ Resolved |
+| M-4 | 🟡 Medium | Quality | Low (add logging) | **P2** | ✅ Resolved |
+| M-6 | 🟡 Medium | Security | Medium (design decision) | **P2** | ✅ Resolved |
 | M-1 | 🟡 Medium | Performance | Medium (eviction redesign) | **P3** | Open |
 | M-2 | 🟡 Medium | Performance | Medium (refactor) | **P3** | Open |
 | L-1 | 🔵 Low | Bug | Low | **P3** | Open |
