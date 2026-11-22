@@ -80,10 +80,15 @@ The feature is disabled by default and can be enabled with the "Enable Reading P
 
 ## Optimized EPUB downloads
 
-When enabled, a dedicated catalog at `/opds/optimized` lists the EPUB books in the library and
-advertises an acquisition link to:
+When enabled, a dedicated catalog at `/opds/optimized` mirrors the root catalog's navigation
+(Alphabetical Books, Favorites, Folders, Genres and Recently Added), including search and the
+OpenSearch description under `/opds/optimized/search` and `/opds/optimized/osd`. All links inside
+the optimized catalog stay under that prefix. EPUB entries advertise an acquisition link to:
 
 `GET /opds/optimized/download/{bookId}`
+
+Books in other formats keep their normal `/opds/download/{bookId}` link. The optimized catalog is
+no longer linked from the root feed, so point your OPDS client directly at `/opds/optimized`.
 
 On first download the plugin repacks the EPUB with any raster images larger than the configured
 maximum width/height downscaled, and caches the result under the server's cache directory. The
