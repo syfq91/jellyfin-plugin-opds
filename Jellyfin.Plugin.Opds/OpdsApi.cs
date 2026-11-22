@@ -629,25 +629,236 @@ public class OpdsApi : ControllerBase
     /// <returns>The optimized feed xml.</returns>
     [HttpGet("optimized")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetOptimizedFeed()
-    {
-        try
-        {
-            await AuthorizeAsync().ConfigureAwait(false);
-            if (!IsOptimizedEnabled())
-            {
-                return NotFound();
-            }
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedFeed()
+        => ExecuteOptimizedAsync(_ => BuildOutput(_opdsFeedProvider.GetOptimizedFeed(Request.PathBase)));
 
-            var feed = _opdsFeedProvider.GetOptimizedFeed(Request.PathBase);
-            return BuildOutput(feed);
-        }
-        catch (AuthenticationException)
+    /// <summary>
+    /// Gets the alphabetical books navigation feed of the optimized catalog.
+    /// </summary>
+    /// <returns>The optimized alphabetical feed xml.</returns>
+    [HttpGet("optimized/books")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedAlphabeticalFeed()
+        => ExecuteOptimizedAsync(_ => BuildOutput(_opdsFeedProvider.GetAlphabeticalFeed(Request.PathBase, optimized: true)));
+
+    /// <summary>
+    /// Gets the genres navigation feed of the optimized catalog.
+    /// </summary>
+    /// <returns>The optimized genres feed xml.</returns>
+    [HttpGet("optimized/genres")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedGenres()
+        => ExecuteOptimizedAsync(userId => BuildOutput(_opdsFeedProvider.GetBookGenres(Request.PathBase, userId, optimized: true)));
+
+    /// <summary>
+    /// Gets the folders navigation feed of the optimized catalog.
+    /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized folders feed xml.</returns>
+    [HttpGet("optimized/folders")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedFolders(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(userId =>
         {
-            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
-            return StatusCode(StatusCodes.Status401Unauthorized);
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            return BuildOutput(_opdsFeedProvider.GetRootFolders(Request.PathBase, userId, start, lim, optimized: true));
+        });
+
+    /// <summary>
+    /// Gets the contents of a folder in the optimized catalog.
+    /// </summary>
+    /// <param name="folderId">The folder id.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized folder feed xml.</returns>
+    [HttpGet("optimized/folders/{folderId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedFolder(
+        [FromRoute] Guid folderId,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feed = _opdsFeedProvider.GetFolder(Request.PathBase, userId, folderId, start, lim, optimized: true);
+            return feed is null ? NotFound() : BuildOutput(feed);
+        });
+
+    /// <summary>
+    /// Gets the recently added books of the optimized catalog.
+    /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized recently added feed xml.</returns>
+    [HttpGet("optimized/books/recentlyadded")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedRecentlyAdded(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            return BuildOutput(_opdsFeedProvider.GetRecentlyAdded(Request.PathBase, userId, start, lim, optimized: true));
+        });
+
+    /// <summary>
+    /// Gets the favorite books of the optimized catalog.
+    /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized favorites feed xml.</returns>
+    [HttpGet("optimized/books/favorite")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedFavoriteBooks(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            return BuildOutput(_opdsFeedProvider.GetFavoriteBooks(Request.PathBase, userId, start, lim, optimized: true));
+        });
+
+    /// <summary>
+    /// Gets the books starting with a given letter in the optimized catalog.
+    /// </summary>
+    /// <param name="startFilter">The start filter.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized alphabetical books feed xml.</returns>
+    [HttpGet("optimized/books/letter/{startFilter}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedBooksByLetter(
+        [FromRoute] string startFilter,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+    {
+        if (string.IsNullOrEmpty(startFilter)
+            || (startFilter.Length != 1 && !string.Equals(startFilter, "00", StringComparison.Ordinal)))
+        {
+            return Task.FromResult<ActionResult>(BadRequest());
         }
+
+        return ExecuteOptimizedAsync(userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            return BuildOutput(_opdsFeedProvider.GetAllBooks(Request.PathBase, userId, startFilter, start, lim, optimized: true));
+        });
     }
+
+    /// <summary>
+    /// Gets the books of a genre in the optimized catalog.
+    /// </summary>
+    /// <param name="genreId">The genre id.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized genre feed xml.</returns>
+    [HttpGet("optimized/genres/{genreId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedBooksByGenre(
+        [FromRoute] Guid genreId,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            return BuildOutput(_opdsFeedProvider.GetBooksByGenre(Request.PathBase, userId, genreId, start, lim, optimized: true));
+        });
+
+    /// <summary>
+    /// Searches the optimized catalog using a route parameter.
+    /// </summary>
+    /// <param name="searchTerms">The search terms.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized search feed xml.</returns>
+    [HttpGet("optimized/search/{searchTerms}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedSearchFromRoute(
+        string searchTerms,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+        => ExecuteOptimizedAsync(async userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feed = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms, start, lim, optimized: true)
+                .ConfigureAwait(false);
+            return BuildOutput(feed);
+        });
+
+    /// <summary>
+    /// Searches the optimized catalog using a query parameter.
+    /// </summary>
+    /// <param name="searchTerms">The search terms as historically used by this plugin.</param>
+    /// <param name="q">The search terms as defined by the OPDS spec.</param>
+    /// <param name="query">The search terms as some OPDS clients provide them.</param>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized search feed xml.</returns>
+    [HttpGet("optimized/search")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedSearchFromQuery(
+        [FromQuery] string? searchTerms = null,
+        [FromQuery] string? q = null,
+        [FromQuery] string? query = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+    {
+        searchTerms ??= q ?? query;
+        if (searchTerms is null)
+        {
+            return Task.FromResult<ActionResult>(StatusCode(StatusCodes.Status400BadRequest));
+        }
+
+        return ExecuteOptimizedAsync(async userId =>
+        {
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feed = await _opdsFeedProvider.SearchBooks(Request.PathBase, userId, searchTerms, start, lim, optimized: true)
+                .ConfigureAwait(false);
+            return BuildOutput(feed);
+        });
+    }
+
+    /// <summary>
+    /// Gets the OpenSearch description of the optimized catalog.
+    /// </summary>
+    /// <returns>The optimized OpenSearch description xml.</returns>
+    [HttpGet("optimized/osd")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> GetOptimizedSearchDescription()
+        => ExecuteOptimizedAsync(_ => BuildOutput(_opdsFeedProvider.GetSearchDescription(Request.PathBase, optimized: true)));
 
     /// <summary>
     /// Downloads an EPUB with oversized images downscaled on demand.
@@ -1015,6 +1226,46 @@ public class OpdsApi : ControllerBase
     private bool IsOptimizedEnabled()
         => (OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
             && _epubImageOptimizer is not null;
+
+    /// <summary>
+    /// Authorizes and gates a synchronous optimized catalog endpoint.
+    /// </summary>
+    /// <param name="buildFeed">Builds the response for the authenticated user.</param>
+    /// <returns>The feed response, or 401/404 when the request is not allowed.</returns>
+    private async Task<ActionResult> ExecuteOptimizedAsync(Func<Guid, ActionResult> buildFeed)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            return IsOptimizedEnabled() ? buildFeed(userId) : NotFound();
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Authorizes and gates an asynchronous optimized catalog endpoint.
+    /// </summary>
+    /// <param name="buildFeed">Builds the response for the authenticated user.</param>
+    /// <returns>The feed response, or 401/404 when the request is not allowed.</returns>
+    private async Task<ActionResult> ExecuteOptimizedAsync(Func<Guid, Task<ActionResult>> buildFeed)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            return IsOptimizedEnabled()
+                ? await buildFeed(userId).ConfigureAwait(false)
+                : NotFound();
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
 
     private static (int StartIndex, int Limit) ResolvePagination(int? page, int? startIndex, int? limit)
     {
