@@ -110,6 +110,14 @@ public class OptimizedFeedProviderTests : IDisposable
                 && link.Title == OptimizedConstants.LinkTitle
                 && link.Href == OptimizedConstants.DownloadPath
                     + (entry.Id == _firstEpub.Id.ToString() ? _firstEpub.Id.ToString() : _secondEpub.Id.ToString())));
+
+        // The original /opds/download/ acquisition link must be removed so that
+        // OPDS clients don't pick it up instead of the optimized link.
+        Assert.All(feed.Entries, entry => Assert.DoesNotContain(
+            entry.Links!,
+            link => link.Rel == "http://opds-spec.org/acquisition"
+                && link.Href != null
+                && link.Href.Contains("/opds/download/", StringComparison.Ordinal)));
     }
 
     [Fact]

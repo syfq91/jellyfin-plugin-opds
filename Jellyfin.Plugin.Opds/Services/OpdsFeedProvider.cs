@@ -924,6 +924,13 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         {
             var entry = CreateEntry(book, baseUrl, userItemData, parentNameCache);
             entry.Links ??= new List<LinkDto>();
+
+            // Remove the original acquisition link added by CreateEntry so that
+            // OPDS clients download the optimized EPUB instead of the original.
+            entry.Links.RemoveAll(l =>
+                string.Equals(l.Rel, "http://opds-spec.org/acquisition", StringComparison.Ordinal)
+                && string.Equals(l.Type, OptimizedConstants.MediaType, StringComparison.OrdinalIgnoreCase));
+
             entry.Links.Add(new LinkDto(
                 OptimizedConstants.AcquisitionRel,
                 baseUrl + OptimizedConstants.DownloadPath + book.Id,
