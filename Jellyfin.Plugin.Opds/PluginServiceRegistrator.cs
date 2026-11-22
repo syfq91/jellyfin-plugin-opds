@@ -26,5 +26,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IPdfPageSource, PdfPageSource>();
         serviceCollection.AddSingleton<IProgressionStore, ProgressionStore>();
         serviceCollection.AddSingleton<IProgressionService, ProgressionService>();
+        serviceCollection.AddSingleton<IEpubImageOptimizer, EpubImageOptimizer>();
     }
 }
