@@ -19,8 +19,7 @@ public class PluginConfiguration : BasePluginConfiguration
         DefaultPageSize = 50;
         ThumbnailWidth = 240;
         AuthCacheDurationMinutes = 10;
-        OptimizedMaxWidth = 1200;
-        OptimizedMaxHeight = 1600;
+        OptimizedMaxDimension = 1600;
         OptimizedImageQuality = 82;
     }
 
@@ -62,14 +61,42 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AuthCacheDurationMinutes { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum width in pixels of images in optimized EPUBs.
+    /// Gets or sets the maximum size in pixels for the long edge of images in optimized EPUBs.
+    /// Images with either dimension exceeding this are downscaled proportionally.
     /// </summary>
-    public int OptimizedMaxWidth { get; set; }
+    public int OptimizedMaxDimension { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum width in pixels of images in optimized EPUBs.
+    /// Maintained for backwards compatibility with existing configuration files.
+    /// </summary>
+    public int OptimizedMaxWidth
+    {
+        get => OptimizedMaxDimension;
+        set
+        {
+            if (value > 0)
+            {
+                OptimizedMaxDimension = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Gets or sets the maximum height in pixels of images in optimized EPUBs.
+    /// Maintained for backwards compatibility with existing configuration files.
     /// </summary>
-    public int OptimizedMaxHeight { get; set; }
+    public int OptimizedMaxHeight
+    {
+        get => OptimizedMaxDimension;
+        set
+        {
+            if (value > 0)
+            {
+                OptimizedMaxDimension = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Gets or sets the encoding quality used when downscaling EPUB images.

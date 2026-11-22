@@ -8,8 +8,7 @@ export default function (view){
         chkEnableOptimizedEpub: document.querySelector('#chkEnableOptimizedEpub'),
         txtDefaultPageSize: document.querySelector('#txtDefaultPageSize'),
         txtThumbnailWidth: document.querySelector('#txtThumbnailWidth'),
-        txtOptimizedMaxWidth: document.querySelector('#txtOptimizedMaxWidth'),
-        txtOptimizedMaxHeight: document.querySelector('#txtOptimizedMaxHeight'),
+        txtOptimizedMaxDimension: document.querySelector('#txtOptimizedMaxDimension'),
         txtOptimizedImageQuality: document.querySelector('#txtOptimizedImageQuality'),
         txtAuthCacheDuration: document.querySelector('#txtAuthCacheDuration'),
 
@@ -22,8 +21,7 @@ export default function (view){
             Plugin.chkEnableOptimizedEpub.checked = config.EnableOptimizedEpub;
             Plugin.txtDefaultPageSize.value = config.DefaultPageSize || 50;
             Plugin.txtThumbnailWidth.value = config.ThumbnailWidth || 240;
-            Plugin.txtOptimizedMaxWidth.value = config.OptimizedMaxWidth || 1200;
-            Plugin.txtOptimizedMaxHeight.value = config.OptimizedMaxHeight || 1600;
+            Plugin.txtOptimizedMaxDimension.value = config.OptimizedMaxDimension || config.OptimizedMaxHeight || config.OptimizedMaxWidth || 1600;
             Plugin.txtOptimizedImageQuality.value = config.OptimizedImageQuality || 82;
             Plugin.txtAuthCacheDuration.value = config.AuthCacheDurationMinutes || 10;
 
@@ -40,8 +38,7 @@ export default function (view){
             config.EnableOptimizedEpub = Plugin.chkEnableOptimizedEpub.checked;
             config.DefaultPageSize = parseInt(Plugin.txtDefaultPageSize.value, 10) || 50;
             config.ThumbnailWidth = parseInt(Plugin.txtThumbnailWidth.value, 10) || 240;
-            config.OptimizedMaxWidth = parseInt(Plugin.txtOptimizedMaxWidth.value, 10) || 1200;
-            config.OptimizedMaxHeight = parseInt(Plugin.txtOptimizedMaxHeight.value, 10) || 1600;
+            config.OptimizedMaxDimension = parseInt(Plugin.txtOptimizedMaxDimension.value, 10) || 1600;
             config.OptimizedImageQuality = parseInt(Plugin.txtOptimizedImageQuality.value, 10) || 82;
             config.AuthCacheDurationMinutes = parseInt(Plugin.txtAuthCacheDuration.value, 10) || 10;
 

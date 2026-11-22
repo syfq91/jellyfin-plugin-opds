@@ -119,7 +119,7 @@ public class EpubImageOptimizerTests : IDisposable
         Assert.Equal(new byte[] { 10 }, ReadEntry(zip, "OEBPS/notes.txt"));
 
         Assert.NotNull(_capturedOptions);
-        Assert.Equal(1200, _capturedOptions.MaxWidth);
+        Assert.Equal(1600, _capturedOptions.MaxWidth);
         Assert.Equal(1600, _capturedOptions.MaxHeight);
         Assert.Equal(82, _capturedOptions.Quality);
     }

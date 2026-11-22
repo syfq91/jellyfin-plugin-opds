@@ -26,8 +26,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
     private const int DefaultMaxCacheEntries = 256;
     private const long MaxEntryBytes = 100L * 1024 * 1024;
     private const long MaxOutputBytes = 1024L * 1024 * 1024;
-    private const int DefaultMaxWidth = 1200;
-    private const int DefaultMaxHeight = 1600;
+    private const int DefaultMaxDimension = 1600;
     private const int DefaultQuality = 82;
     private const string MimetypeKey = "mimetype";
     private const string MimetypeContent = "application/epub+zip";
@@ -90,10 +89,9 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         }
 
         var file = new FileInfo(sourcePath);
-        var maxWidth = GetMaxWidth();
-        var maxHeight = GetMaxHeight();
+        var maxDimension = GetMaxDimension();
         var quality = GetQuality();
-        var key = ComputeCacheKey(book.Id, file, maxWidth, maxHeight, quality);
+        var key = ComputeCacheKey(book.Id, file, maxDimension, quality);
         var cachePath = Path.Combine(_cacheDirectory, key + ".epub");
 
         if (IsValidCachedFile(cachePath))
@@ -111,7 +109,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
                     return new OptimizedEpubResult(cachePath, true);
                 }
 
-                return CreateOptimizedCopy(sourcePath, cachePath, maxWidth, maxHeight, quality)
+                return CreateOptimizedCopy(sourcePath, cachePath, maxDimension, quality)
                     ? new OptimizedEpubResult(cachePath, true)
                     : new OptimizedEpubResult(sourcePath, false);
             }
@@ -125,7 +123,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         }
     }
 
-    private bool CreateOptimizedCopy(string sourcePath, string cachePath, int maxWidth, int maxHeight, int quality)
+    private bool CreateOptimizedCopy(string sourcePath, string cachePath, int maxDimension, int quality)
     {
         Directory.CreateDirectory(_cacheDirectory);
         var tempPath = cachePath + ".tmp";
@@ -201,8 +199,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
                             bytes,
                             extension,
                             format,
-                            maxWidth,
-                            maxHeight,
+                            maxDimension,
                             quality,
                             key,
                             ref downscaled);
@@ -249,8 +246,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         byte[] original,
         string extension,
         ImageFormat format,
-        int maxWidth,
-        int maxHeight,
+        int maxDimension,
         int quality,
         string entryKey,
         ref bool downscaled)
@@ -278,15 +274,16 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         {
             File.WriteAllBytes(inputPath, original);
             var size = _imageEncoder.GetImageSize(inputPath);
-            if (size.Width <= maxWidth && size.Height <= maxHeight)
+            var longEdge = Math.Max(size.Width, size.Height);
+            if (longEdge <= maxDimension)
             {
                 return original;
             }
 
             var options = new ImageProcessingOptions
             {
-                MaxWidth = maxWidth,
-                MaxHeight = maxHeight,
+                MaxWidth = maxDimension,
+                MaxHeight = maxDimension,
                 Quality = quality,
                 SupportedOutputFormats = new[] { format }
             };
@@ -375,16 +372,15 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         };
     }
 
-    private static string ComputeCacheKey(Guid bookId, FileInfo file, int maxWidth, int maxHeight, int quality)
+    private static string ComputeCacheKey(Guid bookId, FileInfo file, int maxDimension, int quality)
     {
         var raw = string.Format(
             CultureInfo.InvariantCulture,
-            "{0:N}:{1}:{2}:{3}:{4}:{5}:{6}",
+            "{0:N}:{1}:{2}:{3}:{4}:{5}",
             bookId,
             file.Length,
             file.LastWriteTimeUtc.Ticks,
-            maxWidth,
-            maxHeight,
+            maxDimension,
             quality,
             OptimizedConstants.CacheVersion);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
@@ -442,16 +438,10 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         }
     }
 
-    private static int GetMaxWidth()
+    private static int GetMaxDimension()
     {
-        var configured = OpdsPlugin.Instance?.Configuration.OptimizedMaxWidth ?? DefaultMaxWidth;
-        return configured is > 0 and <= 4096 ? configured : DefaultMaxWidth;
-    }
-
-    private static int GetMaxHeight()
-    {
-        var configured = OpdsPlugin.Instance?.Configuration.OptimizedMaxHeight ?? DefaultMaxHeight;
-        return configured is > 0 and <= 4096 ? configured : DefaultMaxHeight;
+        var configured = OpdsPlugin.Instance?.Configuration.OptimizedMaxDimension ?? DefaultMaxDimension;
+        return configured is > 0 and <= 4096 ? configured : DefaultMaxDimension;
     }
 
     private static int GetQuality()

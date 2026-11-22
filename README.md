@@ -93,6 +93,6 @@ no image is oversized, the EPUB is DRM-protected or fixed-layout, or the file ca
 the original file is served unchanged.
 
 Changing the configured size or quality produces a new cached variant on the next download. The
-maximum width (default 1200 px), maximum height (default 1600 px) and encoding quality (default 82)
+maximum image size for the long edge (default 1600 px) and encoding quality (default 82)
 are configurable on the plugin settings page, along with the "Enable Optimized EPUB Downloads"
 option. The feature is disabled by default.

@@ -66,17 +66,11 @@
                 </div>
             </div>
             <div class="inputContainer">
-                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedMaxWidth">Optimized EPUB Max Image Width (px)</label>
-                <input id="txtOptimizedMaxWidth" type="number" min="1" max="4096" is="emby-input" class="emby-input" />
+                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedMaxDimension">Optimized EPUB Max Image Size (px)</label>
+                <input id="txtOptimizedMaxDimension" type="number" min="1" max="4096" is="emby-input" class="emby-input" />
                 <div class="fieldDescription">
-                    Images wider than this are downscaled in optimized EPUB downloads (default: 1200).
-                </div>
-            </div>
-            <div class="inputContainer">
-                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedMaxHeight">Optimized EPUB Max Image Height (px)</label>
-                <input id="txtOptimizedMaxHeight" type="number" min="1" max="4096" is="emby-input" class="emby-input" />
-                <div class="fieldDescription">
-                    Images taller than this are downscaled in optimized EPUB downloads (default: 1600).
+                    The maximum length in pixels for the long edge of images in optimized EPUB downloads (default: 1600).
+                    Images larger than this are downscaled proportionally.
                 </div>
             </div>
             <div class="inputContainer">
