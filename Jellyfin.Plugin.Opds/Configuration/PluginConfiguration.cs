@@ -15,9 +15,13 @@ public class PluginConfiguration : BasePluginConfiguration
         AllowAnonymousAccess = false;
         EnablePageStreaming = false;
         EnableProgression = false;
+        EnableOptimizedEpub = false;
         DefaultPageSize = 50;
         ThumbnailWidth = 240;
         AuthCacheDurationMinutes = 10;
+        OptimizedMaxWidth = 1200;
+        OptimizedMaxHeight = 1600;
+        OptimizedImageQuality = 82;
     }
 
     /// <summary>
@@ -38,6 +42,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableProgression { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether optimized EPUB downloads should be exposed.
+    /// </summary>
+    public bool EnableOptimizedEpub { get; set; }
+
+    /// <summary>
     /// Gets or sets the default number of items per page in OPDS feeds.
     /// </summary>
     public int DefaultPageSize { get; set; }
@@ -51,4 +60,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the duration in minutes to cache basic authentication credentials.
     /// </summary>
     public int AuthCacheDurationMinutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum width in pixels of images in optimized EPUBs.
+    /// </summary>
+    public int OptimizedMaxWidth { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum height in pixels of images in optimized EPUBs.
+    /// </summary>
+    public int OptimizedMaxHeight { get; set; }
+
+    /// <summary>
+    /// Gets or sets the encoding quality used when downscaling EPUB images.
+    /// Values of 90 or above cause the image encoder to pass images through unchanged.
+    /// </summary>
+    public int OptimizedImageQuality { get; set; }
 }

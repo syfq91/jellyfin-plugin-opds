@@ -41,6 +41,16 @@
                     page by page such as EPUB.
                 </div>
             </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+                <label class="emby-checkbox-label">
+                    <input id="chkEnableOptimizedEpub" type="checkbox" is="emby-checkbox" />
+                    <span>Enable Optimized EPUB Downloads</span>
+                </label>
+                <div class="fieldDescription">
+                    Offer a separate OPDS catalog (/opds/optimized) that serves EPUBs with oversized
+                    images downscaled on first download. The original files are left untouched.
+                </div>
+            </div>
             <div class="inputContainer">
                 <label class="inputLabel inputLabelUnfocused" for="txtDefaultPageSize">Feed Page Size</label>
                 <input id="txtDefaultPageSize" type="number" min="1" max="500" is="emby-input" class="emby-input" />
@@ -53,6 +63,28 @@
                 <input id="txtThumbnailWidth" type="number" min="50" max="1000" is="emby-input" class="emby-input" />
                 <div class="fieldDescription">
                     The maximum width in pixels for downscaled cover thumbnails served to OPDS readers (default: 240).
+                </div>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedMaxWidth">Optimized EPUB Max Image Width (px)</label>
+                <input id="txtOptimizedMaxWidth" type="number" min="1" max="4096" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    Images wider than this are downscaled in optimized EPUB downloads (default: 1200).
+                </div>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedMaxHeight">Optimized EPUB Max Image Height (px)</label>
+                <input id="txtOptimizedMaxHeight" type="number" min="1" max="4096" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    Images taller than this are downscaled in optimized EPUB downloads (default: 1600).
+                </div>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="txtOptimizedImageQuality">Optimized EPUB Image Quality</label>
+                <input id="txtOptimizedImageQuality" type="number" min="1" max="89" is="emby-input" class="emby-input" />
+                <div class="fieldDescription">
+                    Encoding quality for downscaled images, from 1 to 89 (default: 82). Values of 90 or
+                    above are rejected by the server because they disable image resizing.
                 </div>
             </div>
             <div class="inputContainer">
