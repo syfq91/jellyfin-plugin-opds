@@ -135,6 +135,16 @@ public interface IOpdsFeedProvider
     Task<FeedDto> SearchBooks(string baseUrl, Guid userId, string searchTerm, int? startIndex = null, int? limit = null);
 
     /// <summary>
+    /// Gets the feed of EPUBs available as optimized downloads.
+    /// </summary>
+    /// <param name="baseUrl">The request path base.</param>
+    /// <param name="userId">The user id to filter by.</param>
+    /// <param name="startIndex">The 0-based start index for pagination.</param>
+    /// <param name="limit">The maximum number of items to return.</param>
+    /// <returns>The optimized EPUBs feed.</returns>
+    FeedDto GetOptimizedFeed(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+
+    /// <summary>
     /// Gets the search description.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>

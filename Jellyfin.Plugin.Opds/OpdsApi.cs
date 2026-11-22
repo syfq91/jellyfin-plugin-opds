@@ -35,6 +35,7 @@ public class OpdsApi : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IProgressionService _progressionService;
     private readonly IBasicAuthCache _basicAuthCache;
+    private readonly IEpubImageOptimizer? _epubImageOptimizer;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OpdsApi"/> class.
@@ -45,13 +46,15 @@ public class OpdsApi : ControllerBase
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="progressionService">The progression service.</param>
     /// <param name="basicAuthCache">The basic authentication cache.</param>
+    /// <param name="epubImageOptimizer">The optimized EPUB provider.</param>
     public OpdsApi(
         IUserManager userManager,
         IOpdsFeedProvider opdsFeedProvider,
         IPageStreamService pageStreamService,
         ILibraryManager libraryManager,
         IProgressionService progressionService,
-        IBasicAuthCache? basicAuthCache = null)
+        IBasicAuthCache? basicAuthCache = null,
+        IEpubImageOptimizer? epubImageOptimizer = null)
     {
         _userManager = userManager;
         _opdsFeedProvider = opdsFeedProvider;
@@ -59,6 +62,7 @@ public class OpdsApi : ControllerBase
         _libraryManager = libraryManager;
         _progressionService = progressionService;
         _basicAuthCache = basicAuthCache ?? new BasicAuthCache();
+        _epubImageOptimizer = epubImageOptimizer;
     }
 
     /// <summary>
@@ -611,6 +615,95 @@ public class OpdsApi : ControllerBase
             }
 
             return File(result.Content, result.ContentType);
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Gets the feed of EPUBs available as optimized downloads.
+    /// </summary>
+    /// <param name="page">Optional 1-based page number.</param>
+    /// <param name="startIndex">Optional 0-based start index.</param>
+    /// <param name="limit">Optional page size limit.</param>
+    /// <returns>The optimized feed xml.</returns>
+    [HttpGet("optimized")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> GetOptimizedFeed(
+        [FromQuery] int? page = null,
+        [FromQuery] int? startIndex = null,
+        [FromQuery] int? limit = null)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            if (!(OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
+                || _epubImageOptimizer is null)
+            {
+                return NotFound();
+            }
+
+            var (start, lim) = ResolvePagination(page, startIndex, limit);
+            var feed = _opdsFeedProvider.GetOptimizedFeed(Request.PathBase, userId, start, lim);
+            return BuildOutput(feed);
+        }
+        catch (AuthenticationException)
+        {
+            Response.Headers.Append(AuthHeaderKey, AuthHeaderValue);
+            return StatusCode(StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    /// <summary>
+    /// Downloads an EPUB with oversized images downscaled on demand.
+    /// </summary>
+    /// <param name="bookId">The book id.</param>
+    /// <returns>The optimized EPUB, or the original when no downscaling is needed.</returns>
+    [HttpGet("optimized/download/{bookId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> GetOptimizedBook([FromRoute] Guid bookId)
+    {
+        try
+        {
+            var userId = await AuthorizeAsync().ConfigureAwait(false);
+            if (!(OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
+                || _epubImageOptimizer is null)
+            {
+                return NotFound();
+            }
+
+            var book = GetAuthorizedBook(bookId, userId);
+            if (book is null)
+            {
+                return NotFound();
+            }
+
+            var result = _epubImageOptimizer.Optimize(book);
+            if (result is null)
+            {
+                return NotFound();
+            }
+
+            var lastModified = System.IO.File.GetLastWriteTimeUtc(result.Path);
+            Response.Headers.CacheControl = "public, max-age=604800";
+
+            if (Request.Headers.IfModifiedSince.Count > 0
+                && DateTimeOffset.TryParse(Request.Headers.IfModifiedSince.ToString(), out var ifModifiedSince)
+                && lastModified <= ifModifiedSince.UtcDateTime.AddSeconds(1))
+            {
+                return StatusCode(StatusCodes.Status304NotModified);
+            }
+
+            Response.GetTypedHeaders().LastModified = lastModified;
+            return PhysicalFile(
+                result.Path,
+                OptimizedConstants.MediaType,
+                Path.GetFileName(book.Path) ?? "book.epub");
         }
         catch (AuthenticationException)
         {

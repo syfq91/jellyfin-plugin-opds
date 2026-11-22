@@ -98,14 +98,8 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                 AuthenticationConstants.MediaType));
         }
 
-        return new FeedDto
+        var entries = new List<EntryDto>
         {
-            Id = "urn:jellyfin:opds:root",
-            Links = links.ToArray(),
-            Title = GetFeedName("Feeds"),
-            Author = PluginAuthor,
-            Entries = new List<EntryDto>
-            {
                 new(
                     "Alphabetical Books",
                     "/opds/books",
@@ -161,7 +155,30 @@ public class OpdsFeedProvider : IOpdsFeedProvider
                         new(baseUrl + "/opds/books/recentlyadded", "application/atom+xml;profile=opds-catalog")
                     }
                 }
-            }
+        };
+
+        if (OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
+        {
+            entries.Add(new EntryDto(
+                "Optimized EPUBs",
+                OptimizedConstants.FeedPath,
+                new ContentDto("text", "EPUBs with downscaled images"),
+                timestamp)
+            {
+                Links = new List<LinkDto>
+                {
+                    new(baseUrl + OptimizedConstants.FeedPath, "application/atom+xml;profile=opds-catalog")
+                }
+            });
+        }
+
+        return new FeedDto
+        {
+            Id = "urn:jellyfin:opds:root",
+            Links = links.ToArray(),
+            Title = GetFeedName("Feeds"),
+            Author = PluginAuthor,
+            Entries = entries
         };
     }
 
@@ -847,6 +864,75 @@ public class OpdsFeedProvider : IOpdsFeedProvider
         };
 
         ApplyPagination(feed, baseUrl + "/opds/search/" + encodedSearch, actualStartIndex, actualLimit, searchResult.TotalRecordCount);
+        return feed;
+    }
+
+    /// <inheritdoc />
+    public FeedDto GetOptimizedFeed(string baseUrl, Guid userId, int? startIndex = null, int? limit = null)
+    {
+        var actualStartIndex = NormalizeStartIndex(startIndex);
+        var actualLimit = NormalizeLimit(limit);
+
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = BookItemTypes,
+            OrderBy = [(ItemSortBy.SortName, SortOrder.Ascending)],
+            Recursive = true,
+            DtoOptions = new DtoOptions()
+        };
+
+        if (userId != Guid.Empty)
+        {
+            var user = _userManager.GetUserById(userId);
+            if (user is not null)
+            {
+                query.SetUser(user);
+            }
+        }
+
+        var books = new List<Book>();
+        try
+        {
+            var result = _libraryManager.GetItemsResult(query);
+            if (result?.Items is not null)
+            {
+                books.AddRange(result.Items.OfType<Book>()
+                    .Where(b => string.Equals(Path.GetExtension(b.Path), ".epub", StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Unable to enumerate books for the optimized EPUB feed");
+        }
+
+        books = books.OrderBy(b => b.SortName ?? b.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var totalCount = books.Count;
+        var pagedBooks = books.Skip(actualStartIndex).Take(actualLimit).ToList();
+        var userItemData = GetUserItemData(userId, pagedBooks);
+        var parentNameCache = new Dictionary<Guid, string>();
+
+        var feed = new FeedDto
+        {
+            Id = $"urn:jellyfin:opds:optimized:{actualStartIndex}:{actualLimit}",
+            Author = PluginAuthor,
+            Title = GetFeedName("Optimized EPUBs"),
+            Links = CreateStandardNavigationLinks(baseUrl, baseUrl + OptimizedConstants.FeedPath),
+            Entries = new List<EntryDto>()
+        };
+
+        foreach (var book in pagedBooks)
+        {
+            var entry = CreateEntry(book, baseUrl, userItemData, parentNameCache);
+            entry.Links ??= new List<LinkDto>();
+            entry.Links.Add(new LinkDto(
+                OptimizedConstants.AcquisitionRel,
+                baseUrl + OptimizedConstants.DownloadPath + book.Id,
+                OptimizedConstants.MediaType,
+                OptimizedConstants.LinkTitle));
+            feed.Entries.Add(entry);
+        }
+
+        ApplyPagination(feed, baseUrl + OptimizedConstants.FeedPath, actualStartIndex, actualLimit, totalCount);
         return feed;
     }
 
