@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -28,6 +29,7 @@ public class OptimizedApiTests : IDisposable
     private readonly User _user;
     private readonly Mock<IBasicAuthCache> _basicAuthCache = new();
     private readonly Mock<IEpubImageOptimizer> _optimizer = new();
+    private readonly Mock<IOpdsFeedProvider> _feedProvider = new();
     private readonly OpdsApi _controller;
 
     /// <summary>
@@ -66,13 +68,23 @@ public class OptimizedApiTests : IDisposable
                 It.IsAny<Func<Task<Guid?>>>(), It.IsAny<Func<Guid, bool>>()))
             .ReturnsAsync(_user.Id);
 
-        var feedProvider = new Mock<IOpdsFeedProvider>();
-        feedProvider.Setup(x => x.GetOptimizedFeed(It.IsAny<string>()))
-            .Returns(new FeedDto { Id = "urn:jellyfin:opds:optimized", Title = "Optimized" });
+        var feed = new FeedDto { Id = "urn:jellyfin:opds:optimized", Title = "Optimized" };
+        _feedProvider.Setup(x => x.GetOptimizedFeed(It.IsAny<string>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetAlphabeticalFeed(It.IsAny<string>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetBookGenres(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetRootFolders(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetFolder(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetRecentlyAdded(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetFavoriteBooks(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.GetBooksByGenre(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).Returns(feed);
+        _feedProvider.Setup(x => x.SearchBooks(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>())).ReturnsAsync(feed);
+        _feedProvider.Setup(x => x.GetSearchDescription(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(new OpenSearchDescriptionDto { Xmlns = "http://a9.com/-/spec/opensearch/1.1/" });
 
         _controller = new OpdsApi(
             userManager.Object,
-            feedProvider.Object,
+            _feedProvider.Object,
             Mock.Of<IPageStreamService>(),
             libraryManager.Object,
             Mock.Of<IProgressionService>(),
@@ -172,6 +184,71 @@ public class OptimizedApiTests : IDisposable
         var result = await _controller.GetOptimizedBook(_book.Id);
 
         Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task OptimizedNavigationEndpoints_ReturnNotFound_WhenDisabled()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = false;
+
+        foreach (var endpoint in OptimizedEndpoints())
+        {
+            Assert.IsType<NotFoundResult>(await endpoint(_controller));
+        }
+    }
+
+    [Fact]
+    public async Task OptimizedNavigationEndpoints_ReturnFeed_WhenEnabled()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = true;
+
+        foreach (var endpoint in OptimizedEndpoints())
+        {
+            Assert.IsType<FileStreamResult>(await endpoint(_controller));
+        }
+    }
+
+    [Fact]
+    public async Task OptimizedNavigationEndpoints_PassOptimizedFlag_ToProvider()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = true;
+
+        await _controller.GetOptimizedRecentlyAdded();
+        await _controller.GetOptimizedSearchFromRoute("dune");
+
+        _feedProvider.Verify(x => x.GetRecentlyAdded(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>(), true), Times.Once);
+        _feedProvider.Verify(x => x.SearchBooks(It.IsAny<string>(), It.IsAny<Guid>(), "dune", It.IsAny<int?>(), It.IsAny<int?>(), true), Times.Once);
+    }
+
+    [Fact]
+    public async Task OptimizedSearchFromQuery_ReturnsBadRequest_WhenNoTermsProvided()
+    {
+        OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = true;
+
+        var result = await _controller.GetOptimizedSearchFromQuery();
+
+        Assert.IsType<StatusCodeResult>(result);
+    }
+
+    private static IEnumerable<Func<OpdsApi, Task<ActionResult>>> OptimizedEndpoints()
+    {
+        var folderId = Guid.NewGuid();
+        var genreId = Guid.NewGuid();
+        return new Func<OpdsApi, Task<ActionResult>>[]
+        {
+            controller => controller.GetOptimizedFeed(),
+            controller => controller.GetOptimizedAlphabeticalFeed(),
+            controller => controller.GetOptimizedGenres(),
+            controller => controller.GetOptimizedFolders(),
+            controller => controller.GetOptimizedFolder(folderId),
+            controller => controller.GetOptimizedRecentlyAdded(),
+            controller => controller.GetOptimizedFavoriteBooks(),
+            controller => controller.GetOptimizedBooksByLetter("00"),
+            controller => controller.GetOptimizedBooksByGenre(genreId),
+            controller => controller.GetOptimizedSearchFromRoute("dune"),
+            controller => controller.GetOptimizedSearchFromQuery("dune"),
+            controller => controller.GetOptimizedSearchDescription()
+        };
     }
 
     private static DefaultHttpContext CreateHttpContext()
