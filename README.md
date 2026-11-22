@@ -77,3 +77,22 @@ when anonymous access is disabled, linked from the root feed.
 
 The feature is disabled by default and can be enabled with the "Enable Reading Progression
 (OPDS Progression)" option in the plugin configuration.
+
+## Optimized EPUB downloads
+
+When enabled, a dedicated catalog at `/opds/optimized` lists the EPUB books in the library and
+advertises an acquisition link to:
+
+`GET /opds/optimized/download/{bookId}`
+
+On first download the plugin repacks the EPUB with any raster images larger than the configured
+maximum width/height downscaled, and caches the result under the server's cache directory. The
+original file is never modified. The EPUB structure, entry names and image formats are preserved,
+so internal references, bookmarks and reading progression keep working against the same book. If
+no image is oversized, the EPUB is DRM-protected or fixed-layout, or the file cannot be repacked,
+the original file is served unchanged.
+
+Changing the configured size or quality produces a new cached variant on the next download. The
+maximum width (default 1200 px), maximum height (default 1600 px) and encoding quality (default 82)
+are configurable on the plugin settings page, along with the "Enable Optimized EPUB Downloads"
+option. The feature is disabled by default.
