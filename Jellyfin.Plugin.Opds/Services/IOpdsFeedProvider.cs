@@ -13,23 +13,26 @@ public interface IOpdsFeedProvider
     /// Get the root feeds list.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The root feed.</returns>
-    FeedDto GetFeeds(string baseUrl);
+    FeedDto GetFeeds(string baseUrl, bool optimized = false);
 
     /// <summary>
     /// Get the alphabetical books feed.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The alphabetical books feed.</returns>
-    FeedDto GetAlphabeticalFeed(string baseUrl);
+    FeedDto GetAlphabeticalFeed(string baseUrl, bool optimized = false);
 
     /// <summary>
     /// Gets the list of book genres.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>
     /// <param name="userId">The user id to filter by.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The list of genres.</returns>
-    FeedDto GetBookGenres(string baseUrl, Guid userId);
+    FeedDto GetBookGenres(string baseUrl, Guid userId, bool optimized = false);
 
     /// <summary>
     /// Gets the list of root folders / book libraries.
@@ -38,8 +41,9 @@ public interface IOpdsFeedProvider
     /// <param name="userId">The user id to filter by.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The root folders feed.</returns>
-    FeedDto GetRootFolders(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+    FeedDto GetRootFolders(string baseUrl, Guid userId, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Gets the contents of a specific folder.
@@ -49,8 +53,9 @@ public interface IOpdsFeedProvider
     /// <param name="folderId">The folder id.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The folder feed, or null if not found.</returns>
-    FeedDto? GetFolder(string baseUrl, Guid userId, Guid folderId, int? startIndex = null, int? limit = null);
+    FeedDto? GetFolder(string baseUrl, Guid userId, Guid folderId, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Gets the list of recently added books.
@@ -59,8 +64,9 @@ public interface IOpdsFeedProvider
     /// <param name="userId">The user id to filter by.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build optimized acquisition links.</param>
     /// <returns>The list of recently added books.</returns>
-    FeedDto GetRecentlyAdded(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+    FeedDto GetRecentlyAdded(string baseUrl, Guid userId, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Gets the list of favorite books.
@@ -69,8 +75,9 @@ public interface IOpdsFeedProvider
     /// <param name="userId">The user id to filter by.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build optimized acquisition links.</param>
     /// <returns>The list of favorite books.</returns>
-    FeedDto GetFavoriteBooks(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+    FeedDto GetFavoriteBooks(string baseUrl, Guid userId, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Get the list of books matching the filter.
@@ -80,8 +87,9 @@ public interface IOpdsFeedProvider
     /// <param name="filterStart">The filter start.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build optimized acquisition links.</param>
     /// <returns>The list of books.</returns>
-    FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart, int? startIndex = null, int? limit = null);
+    FeedDto GetAllBooks(string baseUrl, Guid userId, string filterStart, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Gets the list of books within a genre.
@@ -91,8 +99,9 @@ public interface IOpdsFeedProvider
     /// <param name="genreId">The genre id.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build optimized acquisition links.</param>
     /// <returns>The books in the genre.</returns>
-    FeedDto GetBooksByGenre(string baseUrl, Guid userId, Guid genreId, int? startIndex = null, int? limit = null);
+    FeedDto GetBooksByGenre(string baseUrl, Guid userId, Guid genreId, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
     /// Get the book image path.
@@ -131,23 +140,22 @@ public interface IOpdsFeedProvider
     /// <param name="searchTerm">the search term.</param>
     /// <param name="startIndex">The 0-based start index for pagination.</param>
     /// <param name="limit">The maximum number of items to return.</param>
+    /// <param name="optimized">Whether to build links for the optimized EPUB catalog.</param>
     /// <returns>The search result.</returns>
-    Task<FeedDto> SearchBooks(string baseUrl, Guid userId, string searchTerm, int? startIndex = null, int? limit = null);
+    Task<FeedDto> SearchBooks(string baseUrl, Guid userId, string searchTerm, int? startIndex = null, int? limit = null, bool optimized = false);
 
     /// <summary>
-    /// Gets the feed of EPUBs available as optimized downloads.
+    /// Gets the navigation feed of the optimized EPUB catalog.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>
-    /// <param name="userId">The user id to filter by.</param>
-    /// <param name="startIndex">The 0-based start index for pagination.</param>
-    /// <param name="limit">The maximum number of items to return.</param>
-    /// <returns>The optimized EPUBs feed.</returns>
-    FeedDto GetOptimizedFeed(string baseUrl, Guid userId, int? startIndex = null, int? limit = null);
+    /// <returns>The optimized catalog feed.</returns>
+    FeedDto GetOptimizedFeed(string baseUrl);
 
     /// <summary>
     /// Gets the search description.
     /// </summary>
     /// <param name="baseUrl">The request path base.</param>
+    /// <param name="optimized">Whether to point to the optimized EPUB catalog.</param>
     /// <returns>The search description.</returns>
-    OpenSearchDescriptionDto GetSearchDescription(string baseUrl);
+    OpenSearchDescriptionDto GetSearchDescription(string baseUrl, bool optimized = false);
 }

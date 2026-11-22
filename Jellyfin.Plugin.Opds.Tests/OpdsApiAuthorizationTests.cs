@@ -236,14 +236,14 @@ public class OpdsApiAuthorizationTests : IDisposable
     public async Task GetAlphabeticalFeed_Accepts_00_Or_Single_Character()
     {
         _opdsFeedProvider
-            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "00", It.IsAny<int?>(), It.IsAny<int?>()))
+            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "00", It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>()))
             .Returns(new FeedDto { Title = "All Books" });
 
         var result = await _controller.GetAlphabeticalFeed("00");
         Assert.IsType<FileStreamResult>(result);
 
         _opdsFeedProvider
-            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "A", It.IsAny<int?>(), It.IsAny<int?>()))
+            .Setup(x => x.GetAllBooks(It.IsAny<string>(), It.IsAny<Guid>(), "A", It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<bool>()))
             .Returns(new FeedDto { Title = "Books - A" });
 
         var resultA = await _controller.GetAlphabeticalFeed("A");

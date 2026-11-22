@@ -67,7 +67,7 @@ public class OptimizedApiTests : IDisposable
             .ReturnsAsync(_user.Id);
 
         var feedProvider = new Mock<IOpdsFeedProvider>();
-        feedProvider.Setup(x => x.GetOptimizedFeed(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<int?>(), It.IsAny<int?>()))
+        feedProvider.Setup(x => x.GetOptimizedFeed(It.IsAny<string>()))
             .Returns(new FeedDto { Id = "urn:jellyfin:opds:optimized", Title = "Optimized" });
 
         _controller = new OpdsApi(

@@ -289,7 +289,7 @@ public class OpdsApiProgressionTests : IDisposable
     [Fact]
     public async Task GetRootFeed_Output_DoesNotEmitByteOrderMark()
     {
-        _opdsFeedProvider.Setup(x => x.GetFeeds(It.IsAny<string>())).Returns(new FeedDto());
+        _opdsFeedProvider.Setup(x => x.GetFeeds(It.IsAny<string>(), It.IsAny<bool>())).Returns(new FeedDto());
 
         var result = await _controller.GetRootFeed();
         var fileResult = Assert.IsType<FileStreamResult>(result);
@@ -302,7 +302,7 @@ public class OpdsApiProgressionTests : IDisposable
     [Fact]
     public async Task GetSearchDescription_Output_DoesNotEmitByteOrderMark()
     {
-        _opdsFeedProvider.Setup(x => x.GetSearchDescription(It.IsAny<string>()))
+        _opdsFeedProvider.Setup(x => x.GetSearchDescription(It.IsAny<string>(), It.IsAny<bool>()))
             .Returns(new OpenSearchDescriptionDto { Xmlns = "http://a9.com/-/spec/opensearch/1.1/" });
 
         var result = await _controller.GetSearchDescription();

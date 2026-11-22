@@ -624,30 +624,22 @@ public class OpdsApi : ControllerBase
     }
 
     /// <summary>
-    /// Gets the feed of EPUBs available as optimized downloads.
+    /// Gets the navigation feed of the optimized EPUB catalog.
     /// </summary>
-    /// <param name="page">Optional 1-based page number.</param>
-    /// <param name="startIndex">Optional 0-based start index.</param>
-    /// <param name="limit">Optional page size limit.</param>
     /// <returns>The optimized feed xml.</returns>
     [HttpGet("optimized")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult> GetOptimizedFeed(
-        [FromQuery] int? page = null,
-        [FromQuery] int? startIndex = null,
-        [FromQuery] int? limit = null)
+    public async Task<ActionResult> GetOptimizedFeed()
     {
         try
         {
-            var userId = await AuthorizeAsync().ConfigureAwait(false);
-            if (!(OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
-                || _epubImageOptimizer is null)
+            await AuthorizeAsync().ConfigureAwait(false);
+            if (!IsOptimizedEnabled())
             {
                 return NotFound();
             }
 
-            var (start, lim) = ResolvePagination(page, startIndex, limit);
-            var feed = _opdsFeedProvider.GetOptimizedFeed(Request.PathBase, userId, start, lim);
+            var feed = _opdsFeedProvider.GetOptimizedFeed(Request.PathBase);
             return BuildOutput(feed);
         }
         catch (AuthenticationException)
@@ -1015,6 +1007,14 @@ public class OpdsApi : ControllerBase
 
         return book;
     }
+
+    /// <summary>
+    /// Gets a value indicating whether the optimized EPUB catalog is available.
+    /// </summary>
+    /// <returns><see langword="true"/> when the catalog is enabled and an optimizer is registered.</returns>
+    private bool IsOptimizedEnabled()
+        => (OpdsPlugin.Instance?.Configuration.EnableOptimizedEpub ?? false)
+            && _epubImageOptimizer is not null;
 
     private static (int StartIndex, int Limit) ResolvePagination(int? page, int? startIndex, int? limit)
     {

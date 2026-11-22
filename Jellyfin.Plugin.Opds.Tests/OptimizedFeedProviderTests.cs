@@ -19,7 +19,7 @@ using Xunit;
 namespace Jellyfin.Plugin.Opds.Tests;
 
 /// <summary>
-/// Tests the dedicated optimized EPUB feed.
+/// Tests the optimized EPUB catalog feeds.
 /// </summary>
 [Collection("PluginState")]
 public class OptimizedFeedProviderTests : IDisposable
@@ -27,6 +27,8 @@ public class OptimizedFeedProviderTests : IDisposable
     private readonly string _directory;
     private readonly Book _firstEpub;
     private readonly Book _secondEpub;
+    private readonly Book _comic;
+    private readonly Mock<ILibraryManager> _libraryManager;
     private readonly OpdsFeedProvider _provider;
 
     /// <summary>
@@ -46,19 +48,20 @@ public class OptimizedFeedProviderTests : IDisposable
             .Throws(new FileNotFoundException());
         _ = new OpdsPlugin(applicationPaths.Object, xmlSerializer.Object);
 
-        _firstEpub = new Book { Path = Path.Combine(_directory, "a.epub"), Name = "A", SortName = "A" };
-        _secondEpub = new Book { Path = Path.Combine(_directory, "b.epub"), Name = "B", SortName = "B" };
-        var comic = new Book { Path = Path.Combine(_directory, "c.cbz"), Name = "C", SortName = "C" };
+        _firstEpub = new Book { Id = Guid.NewGuid(), Path = Path.Combine(_directory, "a.epub"), Name = "A", SortName = "A" };
+        _secondEpub = new Book { Id = Guid.NewGuid(), Path = Path.Combine(_directory, "b.epub"), Name = "B", SortName = "B" };
+        _comic = new Book { Id = Guid.NewGuid(), Path = Path.Combine(_directory, "c.cbz"), Name = "C", SortName = "C" };
 
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager.Setup(x => x.GetItemsResult(It.IsAny<InternalItemsQuery>()))
             .Returns(new QueryResult<BaseItem>
             {
-                Items = new BaseItem[] { _firstEpub, comic, _secondEpub },
+                Items = new BaseItem[] { _firstEpub, _comic, _secondEpub },
                 TotalRecordCount = 3
             });
         libraryManager.Setup(x => x.GetItemById(It.IsAny<Guid>())).Returns(new Folder { Name = "Author" });
         BaseItem.LibraryManager = libraryManager.Object;
+        _libraryManager = libraryManager;
 
         var userManager = new Mock<IUserManager>();
         userManager.Setup(x => x.GetUserById(It.IsAny<Guid>())).Returns(new User("test", "auth", "pass"));
@@ -96,63 +99,125 @@ public class OptimizedFeedProviderTests : IDisposable
     }
 
     [Fact]
-    public void GetOptimizedFeed_OnlyIncludesEpubs_WithOptimizedAcquisitionLink()
+    public void GetOptimizedFeed_ReturnsNavigationFeed_WithSameCategoriesAsRoot()
     {
-        var feed = _provider.GetOptimizedFeed(string.Empty, Guid.Empty);
+        var root = _provider.GetFeeds(string.Empty);
+        var optimized = _provider.GetOptimizedFeed(string.Empty);
 
-        Assert.Equal(2, feed.TotalResults);
-        Assert.NotNull(feed.Entries);
-        Assert.Equal(2, feed.Entries.Count);
-        Assert.All(feed.Entries, entry => Assert.Contains(
+        Assert.NotNull(root.Entries);
+        Assert.NotNull(optimized.Entries);
+        Assert.Equal(root.Entries.Select(e => e.Title), optimized.Entries.Select(e => e.Title));
+        Assert.Equal(
+            new[]
+            {
+                "/opds/optimized/books",
+                "/opds/optimized/books/favorite",
+                "/opds/optimized/folders",
+                "/opds/optimized/genres",
+                "/opds/optimized/books/recentlyadded"
+            },
+            optimized.Entries.Select(e => e.Id));
+        Assert.All(optimized.Entries, entry => Assert.Contains(
             entry.Links!,
-            link => link.Rel == OptimizedConstants.AcquisitionRel
-                && link.Type == OptimizedConstants.MediaType
-                && link.Title == OptimizedConstants.LinkTitle
-                && link.Href == OptimizedConstants.DownloadPath
-                    + (entry.Id == _firstEpub.Id.ToString() ? _firstEpub.Id.ToString() : _secondEpub.Id.ToString())));
-
-        // The original /opds/download/ acquisition link must be removed so that
-        // OPDS clients don't pick it up instead of the optimized link.
-        Assert.All(feed.Entries, entry => Assert.DoesNotContain(
-            entry.Links!,
-            link => link.Rel == "http://opds-spec.org/acquisition"
-                && link.Href != null
-                && link.Href.Contains("/opds/download/", StringComparison.Ordinal)));
+            link => link.Href!.StartsWith("/opds/optimized/", StringComparison.Ordinal)));
     }
 
     [Fact]
-    public void GetOptimizedFeed_Paginates()
-    {
-        var feed = _provider.GetOptimizedFeed(string.Empty, Guid.Empty, startIndex: 1, limit: 1);
-
-        Assert.Equal(2, feed.TotalResults);
-        Assert.Equal(1, feed.StartIndex);
-        Assert.Equal(1, feed.ItemsPerPage);
-        Assert.NotNull(feed.Entries);
-        Assert.Single(feed.Entries);
-        Assert.DoesNotContain(feed.Links, link => link.Rel == "next");
-        Assert.Contains(feed.Links, link => link.Rel == "previous");
-    }
-
-    [Fact]
-    public void GetFeeds_AdvertisesOptimizedFeed_WhenEnabled()
+    public void GetFeeds_DoesNotAdvertiseOptimizedCatalog_EvenWhenEnabled()
     {
         OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = true;
 
         var feed = _provider.GetFeeds(string.Empty);
 
         Assert.NotNull(feed.Entries);
-        Assert.Contains(feed.Entries, entry => entry.Id == OptimizedConstants.FeedPath);
+        Assert.DoesNotContain(feed.Entries, entry => entry.Id == OptimizedConstants.FeedPath);
     }
 
     [Fact]
-    public void GetFeeds_DoesNotAdvertiseOptimizedFeed_WhenDisabled()
+    public void OptimizedCategoryFeed_EpubsUseOptimizedAcquisitionLink_OtherFormatsKeepOriginal()
     {
-        OpdsPlugin.Instance!.Configuration.EnableOptimizedEpub = false;
-
-        var feed = _provider.GetFeeds(string.Empty);
+        var feed = _provider.GetRecentlyAdded(string.Empty, Guid.Empty, optimized: true);
 
         Assert.NotNull(feed.Entries);
-        Assert.DoesNotContain(feed.Entries, entry => entry.Id == OptimizedConstants.FeedPath);
+        Assert.Equal(3, feed.Entries.Count);
+
+        foreach (var epub in new[] { _firstEpub, _secondEpub })
+        {
+            var entry = feed.Entries.Single(e => e.Id == epub.Id.ToString());
+            Assert.Contains(entry.Links!, link =>
+                link.Rel == OptimizedConstants.AcquisitionRel
+                && link.Type == OptimizedConstants.MediaType
+                && link.Title == OptimizedConstants.LinkTitle
+                && link.Href == OptimizedConstants.DownloadPath + epub.Id);
+            Assert.DoesNotContain(entry.Links!, link =>
+                link.Href != null && link.Href.Contains("/opds/download/", StringComparison.Ordinal));
+        }
+
+        var comicEntry = feed.Entries.Single(e => e.Id == _comic.Id.ToString());
+        Assert.Contains(comicEntry.Links!, link =>
+            link.Rel == "http://opds-spec.org/acquisition"
+            && link.Href == "/opds/download/" + _comic.Id);
+        Assert.DoesNotContain(comicEntry.Links!, link =>
+            link.Href == OptimizedConstants.DownloadPath + _comic.Id);
+    }
+
+    [Fact]
+    public void OptimizedCategoryFeed_UsesOptimizedNavigationLinks()
+    {
+        var feed = _provider.GetRecentlyAdded(string.Empty, Guid.Empty, optimized: true);
+
+        Assert.Contains(feed.Links, link => link.Rel == "self" && link.Href!.StartsWith("/opds/optimized/books/recentlyadded", StringComparison.Ordinal));
+        Assert.Contains(feed.Links, link => link.Rel == "start" && link.Href == "/opds/optimized");
+        Assert.Contains(feed.Links, link => link.Rel == "up" && link.Href == "/opds/optimized");
+        Assert.Contains(feed.Links, link => link.Rel == "search" && link.Href == "/opds/optimized/search/{searchTerms}");
+        Assert.Contains(feed.Links, link => link.Rel == "search" && link.Href == "/opds/optimized/osd");
+    }
+
+    [Fact]
+    public void OptimizedAlphabeticalFeed_UsesOptimizedSubsectionLinks()
+    {
+        var feed = _provider.GetAlphabeticalFeed("/base", optimized: true);
+
+        Assert.NotNull(feed.Entries);
+        Assert.All(feed.Entries, entry =>
+        {
+            Assert.StartsWith("/opds/optimized/books/letter/", entry.Id, StringComparison.Ordinal);
+            Assert.Contains(entry.Links!, link =>
+                link.Rel == "subsection"
+                && link.Href!.StartsWith("/base/opds/optimized/books/letter/", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void OptimizedFoldersFeed_UsesOptimizedSubsectionLinks()
+    {
+        var folderId = Guid.NewGuid();
+        var folder = new Folder { Id = folderId, Name = "Comics" };
+        _firstEpub.ParentId = folderId;
+        _libraryManager.Setup(x => x.GetItemById(folderId)).Returns(folder);
+        _libraryManager
+            .Setup(x => x.GetItemsResult(It.Is<InternalItemsQuery>(q => q.Recursive && q.Limit == 100)))
+            .Returns(new QueryResult<BaseItem> { Items = new BaseItem[] { _firstEpub }, TotalRecordCount = 1 });
+
+        var rootFeed = _provider.GetRootFolders(string.Empty, Guid.Empty, optimized: true);
+        Assert.NotNull(rootFeed.Entries);
+        Assert.NotEmpty(rootFeed.Entries);
+        Assert.All(rootFeed.Entries, entry =>
+        {
+            Assert.StartsWith("/opds/optimized/folders/", entry.Id, StringComparison.Ordinal);
+            Assert.Contains(entry.Links!, link =>
+                link.Rel == "subsection"
+                && link.Href!.StartsWith("/opds/optimized/folders/", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void OptimizedSearchDescription_PointsToOptimizedCatalog()
+    {
+        var description = _provider.GetSearchDescription("/base", optimized: true);
+
+        Assert.NotNull(description.Url);
+        Assert.Contains(description.Url, url => url.Template == "/base/opds/optimized/search/{searchTerms}");
+        Assert.Contains(description.Url, url => url.Template == "/base/opds/optimized/search?query={searchTerms}");
     }
 }
