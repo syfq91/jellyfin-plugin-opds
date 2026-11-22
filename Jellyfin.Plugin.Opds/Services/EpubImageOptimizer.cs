@@ -155,7 +155,11 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
                     writer.Write(
                         MimetypeKey,
                         mimetypeStream,
-                        new ZipWriterEntryOptions { CompressionType = CompressionType.None });
+                        new ZipWriterEntryOptions
+                        {
+                            CompressionType = CompressionType.None,
+                            CompressionLevel = 0
+                        });
                 }
 
                 foreach (var entry in entries)
@@ -193,7 +197,15 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
                     var extension = Path.GetExtension(key);
                     if (ImageFormatFor(extension) is ImageFormat format)
                     {
-                        bytes = DownscaleIfNeeded(bytes, extension, format, maxWidth, maxHeight, quality, ref downscaled);
+                        bytes = DownscaleIfNeeded(
+                            bytes,
+                            extension,
+                            format,
+                            maxWidth,
+                            maxHeight,
+                            quality,
+                            key,
+                            ref downscaled);
                     }
 
                     totalWritten += bytes.Length;
@@ -240,6 +252,7 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
         int maxWidth,
         int maxHeight,
         int quality,
+        string entryKey,
         ref bool downscaled)
     {
         if (!_imageEncoder.SupportsImageEncoding
@@ -249,7 +262,16 @@ public sealed class EpubImageOptimizer : IEpubImageOptimizer
             return original;
         }
 
-        var name = "opds-epub-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var hint = Path.GetFileNameWithoutExtension(entryKey);
+        if (string.IsNullOrEmpty(hint))
+        {
+            hint = "page";
+        }
+
+        var safeHint = new string(hint
+            .Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '_')
+            .ToArray());
+        var name = "opds-epub-" + safeHint + "-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         var inputPath = Path.Combine(Path.GetTempPath(), name + extension);
         var outputPath = inputPath + ".out";
         try
