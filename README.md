@@ -20,6 +20,25 @@ Feed is located at `${baseUrl}/opds`
 
 Authenticated feed is accessed as `https://user:pass@${baseUrl}/opds`
 
+## Catalog & browsing
+
+The root feed at `/opds` exposes standard OPDS 1.2 navigation and acquisition feeds:
+
+* **Alphabetical Books**: `/opds/Books` and `/opds/Books/Letter/{letter}`
+* **Favorites**: `/opds/Books/Favorite`
+* **Folders**: `/opds/Folders` and `/opds/Folders/{folderId}` (hierarchical folder navigation with `rel="up"` parent links)
+* **Genres**: `/opds/Genres` and `/opds/Genres/{genreId}`
+* **Recently Added**: `/opds/Books/RecentlyAdded`
+* **Search**: `/opds/Search` (or `/opds/Search/{searchTerms}`) with an OpenSearch description at `/opds/osd`
+
+Feeds support OPDS 1.2 pagination (`page` and `pageSize` query parameters, defaulting to the configured Feed Page Size). Book entries link to full-size covers (`/opds/Cover/{bookId}`), downscaled JPEG thumbnails (`/opds/Thumbnail/{bookId}`, optionally accepting `?maxWidth=...` up to 1000 px), and book downloads (`/opds/Download/{bookId}`).
+
+## Authentication
+
+By default, all endpoints require HTTP Basic Authentication (`https://user:pass@${baseUrl}/opds`). Valid credentials are cached in memory per user and client IP for the configured Authentication Cache Duration to speed up concurrent cover and page loading.
+
+Anonymous access can be enabled with the **Allow Anonymous Access** option in the plugin configuration (when enabled, folder browsing is restricted to books collections and folders containing books).
+
 ## Page streaming (OPDS-PSE)
 
 Comic book archives (`.cbz`, `.cbr`, `.cb7`, `.cbt`, `.zip`, `.rar`, `.7z`, `.tar`) and PDF
@@ -88,7 +107,7 @@ the optimized catalog stay under that prefix. EPUB entries advertise an acquisit
 `GET /opds/optimized/download/{bookId}`
 
 Books in other formats keep their normal `/opds/download/{bookId}` link. The optimized catalog is
-no longer linked from the root feed, so point your OPDS client directly at `/opds/optimized`.
+not linked from the root feed, so point your OPDS client directly at `/opds/optimized`.
 
 On first download the plugin repacks the EPUB with any raster images larger than the configured
 maximum width/height downscaled, and caches the result under the server's cache directory. The
@@ -101,3 +120,19 @@ Changing the configured size or quality produces a new cached variant on the nex
 maximum image size for the long edge (default 1600 px) and encoding quality (default 82)
 are configurable on the plugin settings page, along with the "Enable Optimized EPUB Downloads"
 option. The feature is disabled by default.
+
+## Configuration
+
+All options are available on the **OPDS Feed** plugin settings page in the Jellyfin dashboard:
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Allow Anonymous Access | `false` | Allow unauthenticated access to OPDS feeds. |
+| Enable Page Streaming (OPDS-PSE) | `false` | Expose comic archives and PDFs page by page via `/opds/stream/{bookId}`. |
+| Enable Reading Progression (OPDS Progression) | `false` | Enable `/opds/progression/{bookId}` and `/opds/authentication.json`. |
+| Enable Optimized EPUB Downloads | `false` | Enable the `/opds/optimized` catalog with on-demand EPUB image downscaling. |
+| Feed Page Size | `50` | Number of book entries per page in OPDS feeds (`1`–`500`). |
+| Cover Thumbnail Width (px) | `240` | Maximum width in pixels for cover thumbnails (`50`–`1000`). |
+| Optimized EPUB Max Image Size (px) | `1600` | Maximum length in pixels for the long edge of images in optimized EPUBs (`1`–`4096`). |
+| Optimized EPUB Image Quality | `82` | JPEG/image encoding quality for downscaled images (`1`–`89`). |
+| Authentication Cache Duration (minutes) | `10` | Duration to cache valid Basic Auth credentials in memory (`1`–`60`). |
